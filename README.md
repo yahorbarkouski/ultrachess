@@ -401,7 +401,7 @@ Pull requests that touch move generation must include a perft diff for all six s
 
 ## License
 
-MIT.
+MIT
 
 ---
 
