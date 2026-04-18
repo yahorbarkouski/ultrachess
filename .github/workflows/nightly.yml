@@ -1,0 +1,61 @@
+name: nightly
+
+on:
+  schedule:
+    # 05:00 UTC every day. Heavy tests that don't belong on PRs.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+env:
+  RUST_TOOLCHAIN: "1.95"
+  NODE_VERSION: "20"
+
+jobs:
+  diff-fuzz-10k:
+    name: differential fuzz (10k games)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install binaryen (wasm-opt)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build:wasm
+      - run: npm run build:inline
+
+      - name: 10k differential fuzz vs chess.js
+        env:
+          DIFF_FUZZ_GAMES: "10000"
+        run: npx vitest run test/differential
+
+  deep-perft:
+    name: deep perft (Rust --ignored)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test --release -p ultrachess-core --test perft -- --ignored
