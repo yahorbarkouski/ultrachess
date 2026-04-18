@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
-// Bun-runtime smoke: loads the async entry, runs perft, checks one invariant.
-// Runs under `bun test/bun-smoke.mjs` or `node test/bun-smoke.mjs`.
+// Cross-runtime smoke: loads the published bundle, runs perft, checks one
+// invariant. Runs the same way under Node, Bun, or Deno:
+//   node test/cross-runtime/bun-smoke.mjs
+//   bun  test/cross-runtime/bun-smoke.mjs
+//   deno run --allow-read test/cross-runtime/bun-smoke.mjs
 //
-// Keeping this as a standalone script (not inside vitest) makes it trivial
-// to run under different runtimes without configuring a second test runner.
+// Standalone (not inside vitest) so adding a new runtime never requires a
+// second test runner to be configured.
 
 import assert from "node:assert/strict";
-import { Chess } from "../dist/index.js";
+import { Chess } from "../../dist/index.js";
 
 const chess = await Chess.create();
 try {

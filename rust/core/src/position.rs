@@ -483,10 +483,22 @@ impl Position {
         }
 
         // Halfmove / fullmove clocks.
+        //
+        // `halfmove` uses `saturating_add` rather than `wrapping_add`: a
+        // pathological FEN-loaded position with `halfmove == u16::MAX` and
+        // a quiet non-pawn move would otherwise wrap the counter back to 0,
+        // silently defeating the 50-move rule (`halfmove >= 100`). The
+        // restore in `unmake_move` reads `prev_halfmove` from the `Undo`
+        // record, so saturation does not break make/unmake symmetry.
+        //
+        // `fullmove` keeps `wrapping_add` because `unmake_move` mirrors it
+        // with `wrapping_sub` and there is no saved `prev_fullmove` —
+        // make/unmake symmetry would break otherwise. No chess rule depends
+        // on the absolute fullmove value.
         if pt == PieceType::Pawn || captured.is_some() {
             self.halfmove = 0;
         } else {
-            self.halfmove = prev_halfmove.wrapping_add(1);
+            self.halfmove = prev_halfmove.saturating_add(1);
         }
         if us == Color::Black {
             self.fullmove = self.fullmove.wrapping_add(1);

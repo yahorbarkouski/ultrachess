@@ -108,9 +108,9 @@ export function pieceChar(p: Piece): string {
  *  `Move` + its originating `Position`. Never allocated inside hot-path
  *  move generation. */
 export interface VerboseMove {
-  /** Source square index (0..64). */
+  /** Source square index — `0..=63`, with `0 = a1`, `63 = h8` (rank-major). */
   fromIndex: number;
-  /** Target square index. */
+  /** Target square index — same encoding as `fromIndex`. */
   toIndex: number;
   /** Source square in algebraic notation, e.g. `"e2"`. */
   from: string;

@@ -646,7 +646,3 @@ If you want to learn this field end-to-end, in roughly this order:
 5. cozy-chess source — the closest comparable in Rust.
 
 ---
-
-*Status: outline complete, prose being filled in act-by-act. Each level
-will grow a code-where-useful expansion and measured numbers where the
-ladder bench crate has an entry.*

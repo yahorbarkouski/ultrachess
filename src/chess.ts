@@ -84,6 +84,11 @@ function isInvalidHandle(h: number): boolean {
 const PIECE_EMPTY = 255;
 const PIECE_INVALID_ARGS = 254;
 
+// Status codes returned by `ultrachess_make_move` (see rust/wasm/src/lib.rs):
+const MAKE_MOVE_OK = 0;
+const MAKE_MOVE_INVALID_HANDLE = 1;
+const MAKE_MOVE_ILLEGAL = 2;
+
 /**
  * Chess position with a full chess.js-compatible API — move generation,
  * make/undo, FEN/SAN/PGN I/O, draw/mate detection, attacks, position edits.
@@ -512,10 +517,20 @@ export class Chess {
     const packed: number =
       typeof input === "string" ? (this.parseSan(input) as number) : (input as number);
     const status = this.abi.ultrachess_make_move(this.handle, packed);
-    if (status === 1) throw new DisposedError();
-    if (status === 2) throw new IllegalMoveError(`illegal move: ${String(input)}`);
-    this.moveStack.push(packed);
-    return packed as Move;
+    switch (status) {
+      case MAKE_MOVE_OK:
+        this.moveStack.push(packed);
+        return packed as Move;
+      case MAKE_MOVE_INVALID_HANDLE:
+        throw new DisposedError();
+      case MAKE_MOVE_ILLEGAL:
+        throw new IllegalMoveError(`illegal move: ${String(input)}`);
+      default:
+        throw new Error(
+          `ultrachess: ultrachess_make_move returned unexpected status ${status} ` +
+            `(expected 0/1/2). The bundled .wasm is out of sync with the TS shim.`,
+        );
+    }
   }
 
   /** Undo the most recently made move. Returns the move that was undone,

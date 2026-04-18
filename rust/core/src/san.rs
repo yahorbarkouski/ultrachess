@@ -35,6 +35,15 @@ fn attacks_from_target(pt: PieceType, to: Square, occ: Bitboard) -> Bitboard {
 
 /// Emit canonical SAN for `m` in `pos`. Requires `m` to be a legal move in
 /// `pos`; panics in debug builds otherwise.
+///
+/// **`&mut Position`, but logically read-only.** Detecting the `+` / `#`
+/// suffix requires knowing whether the opponent is in check / mated *after*
+/// `m` is played. We use the standard make-then-unmake idiom on `pos` itself
+/// rather than cloning (which would heap-allocate `history` on every SAN
+/// emission, and PGN writing emits one SAN per ply). On return `pos` is
+/// byte-for-byte equal to its state at entry — including `zobrist`,
+/// `history`, and the `checkers` cache — so callers may treat the borrow
+/// as read-only.
 pub fn move_to_san(pos: &mut Position, m: Move) -> String {
     debug_assert_move_is_legal(pos, m);
 

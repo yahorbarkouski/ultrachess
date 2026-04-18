@@ -78,7 +78,12 @@ test-diff-100k: build-wasm build-inline
 # ≥90% branches. The build fails below those numbers.
 
 # Shared llvm-cov env for the Rust recipes — keeps the PATH dance in one place.
-cov_env := "LLVM_COV=/Users/yahorbarkouski/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/llvm-cov LLVM_PROFDATA=/Users/yahorbarkouski/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/llvm-profdata"
+# Resolved from the active rustup toolchain so the recipe is portable across
+# hosts (aarch64-apple-darwin, x86_64-unknown-linux-gnu, …).
+sysroot := `rustc --print sysroot`
+host    := `rustc -vV | sed -n 's/^host: //p'`
+cov_env := "LLVM_COV=" + sysroot + "/lib/rustlib/" + host + "/bin/llvm-cov" + \
+           " LLVM_PROFDATA=" + sysroot + "/lib/rustlib/" + host + "/bin/llvm-profdata"
 
 # Rust coverage summary — prints the per-file percentages.
 coverage-rs:
@@ -163,8 +168,32 @@ lint:
 # Full gate: format check + lint across both languages.
 check: fmt-check lint
 
+# --- Cross-runtime smoke ---------------------------------------------------
+#
+# Runs the standalone scripts under `test/cross-runtime/` against every
+# JavaScript runtime found on PATH. Each script imports from `dist/`, so we
+# build the bundle first to exercise the *published* artefact rather than
+# the source tree.
+
+test-cross: build
+    @echo "=== cross-runtime smoke ==="
+    @echo "--- node ---"
+    node test/cross-runtime/bun-smoke.mjs
+    @if command -v bun >/dev/null 2>&1; then \
+        echo "--- bun ---" ; \
+        bun test/cross-runtime/bun-smoke.mjs ; \
+    else \
+        echo "note: bun not on PATH — skipping" ; \
+    fi
+    @if command -v deno >/dev/null 2>&1; then \
+        echo "--- deno ---" ; \
+        deno run --allow-read --allow-env test/cross-runtime/bun-smoke.mjs ; \
+    else \
+        echo "note: deno not on PATH — skipping" ; \
+    fi
+
 # --- Misc -------------------------------------------------------------------
 
 clean:
     cargo clean
-    rm -rf dist assets node_modules
+    rm -rf dist assets node_modules src/generated
