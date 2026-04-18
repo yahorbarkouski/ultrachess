@@ -259,15 +259,23 @@ pub fn write_fen(pos: &Position) -> String {
         }
     }
     s.push(' ');
+    // `write!` into a `String` is infallible, but returns `Result` for the
+    // trait's sake. Using the pushing API avoids allocating a format args
+    // frame for the no-argument `{sq}` case.
     match pos.ep_square {
         Some(sq) => {
-            use core::fmt::Write;
-            let _ = write!(s, "{sq}");
+            use core::fmt::Write as _;
+            // Infallible: writes into a `String`.
+            s.write_fmt(format_args!("{sq}")).unwrap();
         }
         None => s.push('-'),
     }
-    use core::fmt::Write;
-    let _ = write!(s, " {} {}", pos.halfmove, pos.fullmove);
+    {
+        use core::fmt::Write as _;
+        // Infallible: writes into a `String`.
+        s.write_fmt(format_args!(" {} {}", pos.halfmove, pos.fullmove))
+            .unwrap();
+    }
     s
 }
 

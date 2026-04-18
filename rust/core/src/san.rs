@@ -211,7 +211,11 @@ pub fn san_to_move(pos: &Position, san: &str) -> Result<Move, SanError> {
 
     // Try syntactic parse → match against legal moves.
     if let Some(intent) = parse_san_intent(cleaned) {
-        return match_intent(pos, &intent).ok_or_else(|| SanError::NoLegalMove(raw.to_string()));
+        return match match_intent(pos, &intent) {
+            IntentMatch::One(m) => Ok(m),
+            IntentMatch::None => Err(SanError::NoLegalMove(raw.to_string())),
+            IntentMatch::Ambiguous => Err(SanError::Ambiguous(raw.to_string())),
+        };
     }
 
     // UCI-style fallback: "e2e4" or "e7e8q".
@@ -220,6 +224,16 @@ pub fn san_to_move(pos: &Position, san: &str) -> Result<Move, SanError> {
     }
 
     Err(SanError::Syntax(raw.to_string()))
+}
+
+/// Outcome of matching a [`SanIntent`] against the legal move list.
+enum IntentMatch {
+    /// Exactly one legal move fits the intent.
+    One(Move),
+    /// No legal move fits.
+    None,
+    /// Multiple legal moves fit — the SAN didn't disambiguate enough.
+    Ambiguous,
 }
 
 fn strip_trailing_symbols(s: &str) -> &str {
@@ -362,7 +376,7 @@ fn parse_san_intent(s: &str) -> Option<SanIntent> {
     })
 }
 
-fn match_intent(pos: &Position, intent: &SanIntent) -> Option<Move> {
+fn match_intent(pos: &Position, intent: &SanIntent) -> IntentMatch {
     let mut ml = MoveList::new();
     generate_legal_moves(pos, &mut ml);
     let mut matches: Vec<Move> = Vec::with_capacity(4);
@@ -404,14 +418,12 @@ fn match_intent(pos: &Position, intent: &SanIntent) -> Option<Move> {
         let _ = intent.capture;
         matches.push(*m);
     }
-    if matches.len() == 1 {
-        Some(matches[0])
-    } else if matches.is_empty() {
-        None
-    } else {
-        // Ambiguous: if intent provided disambig hints, matches collapsed; if
-        // not, the caller wrote bare SAN that genuinely doesn't disambiguate.
-        None
+    match matches.len() {
+        0 => IntentMatch::None,
+        1 => IntentMatch::One(matches[0]),
+        // Multiple legal moves matched — caller wrote SAN that genuinely
+        // fails to disambiguate (or provided hints that still aren't enough).
+        _ => IntentMatch::Ambiguous,
     }
 }
 
@@ -795,6 +807,23 @@ mod tests {
     }
 
     // -- file+rank disambiguation path (both needed) ------------------------
+
+    #[test]
+    fn parser_reports_ambiguous_when_san_matches_multiple_legal_moves() {
+        // Two white knights on b1 and f3 can both reach d2 — bare "Nd2" is
+        // genuinely ambiguous and must surface as `SanError::Ambiguous`, not
+        // `NoLegalMove`. This pins the distinction between the two error
+        // variants in `match_intent`.
+        let fen = "4k3/8/8/8/8/5N2/8/1N2K3 w - - 0 1";
+        let p = parse_fen(fen).unwrap();
+        assert!(
+            matches!(san_to_move(&p, "Nd2"), Err(SanError::Ambiguous(_))),
+            "bare 'Nd2' must be reported as ambiguous"
+        );
+        // With disambiguation, it resolves fine.
+        assert!(san_to_move(&p, "Nbd2").is_ok());
+        assert!(san_to_move(&p, "Nfd2").is_ok());
+    }
 
     #[test]
     fn san_writer_emits_full_square_when_file_and_rank_both_needed() {

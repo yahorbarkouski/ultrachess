@@ -76,15 +76,22 @@ pub struct MoveList {
 impl MoveList {
     #[inline(always)]
     pub fn new() -> Self {
-        let buf = unsafe {
-            core::mem::MaybeUninit::<[core::mem::MaybeUninit<Move>; 256]>::uninit().assume_init()
-        };
+        // Inline-const `MaybeUninit::uninit()` is the idiomatic post-1.79 way
+        // to build an uninitialised array without touching `assume_init`.
+        let buf = [const { core::mem::MaybeUninit::<Move>::uninit() }; 256];
         Self { buf, len: 0 }
     }
 
+    /// Push a move. Theoretical chess positions have ≤ 218 legal moves, so
+    /// the 256-slot buffer is always sufficient; the `debug_assert` pins
+    /// that invariant for tests.
     #[inline(always)]
     pub fn push(&mut self, m: Move) {
         debug_assert!(self.len < 256);
+        // SAFETY: `self.len < 256` by the debug assert and the chess
+        // max-legal-moves invariant. `write` initialises the slot before
+        // `self.len` is incremented, so `as_slice()` only ever observes
+        // initialised cells.
         unsafe { self.buf.get_unchecked_mut(self.len).write(m) };
         self.len += 1;
     }
@@ -101,7 +108,11 @@ impl MoveList {
 
     #[inline(always)]
     pub fn as_slice(&self) -> &[Move] {
-        // SAFETY: entries `0..self.len` are initialised by `push`.
+        // SAFETY:
+        // - `MaybeUninit<T>` is guaranteed `#[repr(transparent)]` over `T`,
+        //   so `&[MaybeUninit<Move>]` and `&[Move]` share layout.
+        // - Entries `0..self.len` are initialised by `push` before `len` is
+        //   incremented, so the reinterpret only exposes initialised cells.
         unsafe { core::slice::from_raw_parts(self.buf.as_ptr() as *const Move, self.len) }
     }
 
@@ -163,46 +174,42 @@ impl MoveSink for MoveList {
 
 /// Counts legal moves without materialising them. Used at perft leaves
 /// where we only need the move count.
-pub struct MoveCounter(pub u32);
+#[derive(Default)]
+pub struct MoveCounter {
+    count: u32,
+}
 
 impl MoveCounter {
     #[inline(always)]
     pub fn new() -> Self {
-        Self(0)
+        Self { count: 0 }
     }
 
     #[inline(always)]
-    pub fn get(self) -> u32 {
-        self.0
-    }
-}
-
-impl Default for MoveCounter {
-    #[inline(always)]
-    fn default() -> Self {
-        Self::new()
+    pub fn get(&self) -> u32 {
+        self.count
     }
 }
 
 impl MoveSink for MoveCounter {
     #[inline(always)]
     fn push_targets(&mut self, _from: Square, targets: Bitboard) {
-        self.0 += targets.count_ones();
+        self.count += targets.count_ones();
     }
 
     #[inline(always)]
     fn push_pawn_targets_offset(&mut self, targets: Bitboard, _offset: i32) {
-        self.0 += targets.count_ones();
+        self.count += targets.count_ones();
     }
 
     #[inline(always)]
     fn push_pawn_promotions_offset(&mut self, targets: Bitboard, _offset: i32) {
-        self.0 += 4 * targets.count_ones();
+        self.count += 4 * targets.count_ones();
     }
 
     #[inline(always)]
     fn push_one(&mut self, _m: Move) {
-        self.0 += 1;
+        self.count += 1;
     }
 }
 

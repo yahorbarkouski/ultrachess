@@ -139,21 +139,6 @@ impl fmt::Display for Move {
     }
 }
 
-// Shorthand constants so tests can write `Square::E2` without importing.
-impl Square {
-    pub const A2: Self = Self(8);
-    pub const D2: Self = Self(11);
-    pub const E2: Self = Self(12);
-    pub const E3: Self = Self(20);
-    pub const E4: Self = Self(28);
-    pub const D4: Self = Self(27);
-    pub const E5: Self = Self(36);
-    pub const D5: Self = Self(35);
-    pub const F6: Self = Self(45);
-    pub const E7: Self = Self(52);
-    pub const A7: Self = Self(48);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

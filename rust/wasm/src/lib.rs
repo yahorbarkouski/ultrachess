@@ -10,6 +10,7 @@
 
 mod slab;
 
+use core::ptr::addr_of_mut;
 use core::slice;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -27,12 +28,61 @@ use crate::slab::{with_pgn, with_pgn_mut, with_positions, with_positions_mut, HA
 
 const ABI_VERSION: u32 = 2;
 
-// Scratch areas. WASM is single-threaded; `static mut` is sound.
+// Scratch areas. WASM is single-threaded and ABI entry points never re-enter,
+// so there's no aliasing risk in practice — but `static mut` direct references
+// are lint-deny under edition 2024, so everything below goes through raw
+// pointers via `addr_of_mut!`.
 const MOVE_SCRATCH_CAP: usize = 512;
 const STRING_SCRATCH_CAP: usize = 65_536; // ample for large PGNs
 
 static mut MOVE_SCRATCH: [u32; MOVE_SCRATCH_CAP] = [0u32; MOVE_SCRATCH_CAP];
 static mut STRING_SCRATCH: [u8; STRING_SCRATCH_CAP] = [0u8; STRING_SCRATCH_CAP];
+
+/// Obtain a mutable slice into [`MOVE_SCRATCH`] covering the first `n` slots.
+///
+/// # Safety
+/// Caller must not hold another overlapping reference to `MOVE_SCRATCH` for
+/// the duration of the returned borrow, and `n` must be `<= MOVE_SCRATCH_CAP`.
+#[inline(always)]
+unsafe fn move_scratch_slice_mut(n: usize) -> &'static mut [u32] {
+    debug_assert!(n <= MOVE_SCRATCH_CAP);
+    // SAFETY: single-threaded + non-reentrant ABI entry points mean the
+    // caller holds no other live borrow of MOVE_SCRATCH. `n <= CAP` gated
+    // above. Explicit `&mut *...` avoids `dangerous_implicit_autorefs`.
+    unsafe {
+        let arr: &mut [u32; MOVE_SCRATCH_CAP] = &mut *addr_of_mut!(MOVE_SCRATCH);
+        &mut arr[..n]
+    }
+}
+
+/// Obtain a mutable slice into [`STRING_SCRATCH`] covering the first `n` bytes.
+///
+/// # Safety
+/// See [`move_scratch_slice_mut`].
+#[inline(always)]
+unsafe fn string_scratch_slice_mut(n: usize) -> &'static mut [u8] {
+    debug_assert!(n <= STRING_SCRATCH_CAP);
+    // SAFETY: see `move_scratch_slice_mut`.
+    unsafe {
+        let arr: &mut [u8; STRING_SCRATCH_CAP] = &mut *addr_of_mut!(STRING_SCRATCH);
+        &mut arr[..n]
+    }
+}
+
+/// Write a single byte into [`STRING_SCRATCH`] at `idx`.
+///
+/// # Safety
+/// `idx < STRING_SCRATCH_CAP`. Caller must not hold another overlapping
+/// reference to `STRING_SCRATCH`.
+#[inline(always)]
+unsafe fn string_scratch_write(idx: usize, value: u8) {
+    debug_assert!(idx < STRING_SCRATCH_CAP);
+    // SAFETY: see function doc. `add(idx)` stays in bounds by the precondition.
+    unsafe {
+        let base: *mut u8 = addr_of_mut!(STRING_SCRATCH) as *mut u8;
+        *base.add(idx) = value;
+    }
+}
 
 /// High 32 bits of the last u64-returning export. Returned via a dedicated
 /// export to avoid depending on i64 in the JS↔WASM ABI.
@@ -58,7 +108,7 @@ pub extern "C" fn ultrachess_abi_version() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn ultrachess_move_scratch_ptr() -> u32 {
-    core::ptr::addr_of!(MOVE_SCRATCH) as usize as u32
+    addr_of_mut!(MOVE_SCRATCH) as usize as u32
 }
 
 #[no_mangle]
@@ -68,7 +118,7 @@ pub extern "C" fn ultrachess_move_scratch_cap() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn ultrachess_string_scratch_ptr() -> u32 {
-    core::ptr::addr_of!(STRING_SCRATCH) as usize as u32
+    addr_of_mut!(STRING_SCRATCH) as usize as u32
 }
 
 #[no_mangle]
@@ -230,9 +280,12 @@ pub unsafe extern "C" fn ultrachess_attackers(
         let cap = cap as usize;
         while bb != 0 && count < cap {
             let attacker_sq = pop_lsb(&mut bb);
+            // SAFETY: either scratch (single-threaded, non-reentrant) or a
+            // caller-provided buffer of at least `cap` bytes. `count < cap`
+            // holds by the loop guard.
             unsafe {
                 if out_ptr == 0 {
-                    STRING_SCRATCH[count] = attacker_sq.0;
+                    string_scratch_write(count, attacker_sq.0);
                 } else {
                     *(out_ptr as *mut u8).add(count) = attacker_sq.0;
                 }
@@ -268,9 +321,10 @@ pub unsafe extern "C" fn ultrachess_find_piece(
         let cap = cap as usize;
         while bb != 0 && count < cap {
             let sq = pop_lsb(&mut bb);
+            // SAFETY: see `ultrachess_attackers`.
             unsafe {
                 if out_ptr == 0 {
-                    STRING_SCRATCH[count] = sq.0;
+                    string_scratch_write(count, sq.0);
                 } else {
                     *(out_ptr as *mut u8).add(count) = sq.0;
                 }
@@ -357,9 +411,11 @@ pub unsafe extern "C" fn ultrachess_generate_moves(handle: u32, out_ptr: u32, ca
             let mut ml = ml.borrow_mut();
             generate_legal_moves(p, &mut ml);
             let n = ml.len().min(cap as usize);
+            // SAFETY: either scratch (single-threaded, non-reentrant) or a
+            // caller-provided buffer of at least `cap * 4` bytes.
             unsafe {
                 let dst = if out_ptr == 0 {
-                    &mut MOVE_SCRATCH[..n]
+                    move_scratch_slice_mut(n)
                 } else {
                     slice::from_raw_parts_mut(out_ptr as *mut u32, n)
                 };
@@ -638,9 +694,11 @@ pub extern "C" fn ultrachess_move_promotion(packed: u32) -> u32 {
 /// If `out_ptr != 0` it must point to `cap` writable bytes.
 unsafe fn write_bytes_to_scratch(bytes: &[u8], out_ptr: u32, cap: u32) -> u32 {
     let n = bytes.len().min(cap as usize);
+    // SAFETY: either scratch (single-threaded, non-reentrant) or a
+    // caller-provided buffer of at least `cap` bytes.
     unsafe {
         let dst = if out_ptr == 0 {
-            &mut STRING_SCRATCH[..n]
+            string_scratch_slice_mut(n)
         } else {
             slice::from_raw_parts_mut(out_ptr as *mut u8, n)
         };
