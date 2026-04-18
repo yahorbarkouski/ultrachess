@@ -1,29 +1,86 @@
 name: release
 
+# Single workflow that handles both halves of the release lifecycle:
+#
+#  1. `release-please` job — watches `main` for conventional commits and
+#     maintains an open "chore: release X.Y.Z" PR. Merging that PR runs
+#     this workflow again: release-please now sees the bumped manifest,
+#     pushes the git tag, and creates the GitHub Release.
+#
+#  2. `publish` job — gated on `needs.release-please.outputs.release_created`.
+#     Only fires when step 1 actually cut a release this run. Runs the
+#     full test gate and publishes to npm with provenance via Trusted
+#     Publishing (OIDC).
+#
+# Why both live in one workflow: events emitted by `GITHUB_TOKEN`
+# (including release-please's "release published" event) do NOT trigger
+# other workflows in this repo — it's GitHub's loop-prevention rule. A
+# separate `release: published` workflow never fires. Colocating the
+# publish step sidesteps the limitation without needing a PAT.
+
 on:
-  # Fires when release-please's draft is promoted to a published Release.
-  release:
-    types: [published]
-  # Safety valve for hotfixes or if release-please misbehaves.
+  push:
+    branches: [main]
+  # Safety valve for hotfixes or retries: publish an already-tagged
+  # version without going through release-please.
   workflow_dispatch:
     inputs:
       ref:
-        description: "Git ref (tag or SHA) to publish"
+        description: "Git ref (tag or SHA) to publish — skips release-please job"
         required: true
         type: string
 
+# `release-please` needs contents:write and pull-requests:write to open
+# its PR and create the GitHub Release. `publish` narrows to its own
+# minimum (id-token for OIDC, contents:read to check out).
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   RUST_TOOLCHAIN: "1.95"
-  # Node 24 ships npm 11.x, which has the full Trusted Publishing OIDC
-  # flow integrated. Older npm (10.x) signs the provenance attestation
-  # but then PUTs the tarball anonymously — the registry 404s because
-  # no auth credential made it through the exchange.
+  # Node 24 ships npm 11.x — required for the Trusted Publishing OIDC
+  # handshake. On npm 10.x (Node 22 default) the provenance attestation
+  # gets signed but the tarball PUT goes anonymous and 404s.
   NODE_VERSION: "24"
 
 jobs:
+  release-please:
+    name: release-please (version PR + GitHub Release)
+    runs-on: ubuntu-latest
+    # Skip entirely on manual dispatch — user wants to publish a
+    # specific ref, not re-run release-please.
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
+
   publish:
     name: npm publish (provenance via OIDC)
     runs-on: ubuntu-latest
+    # Gate: only publish if release-please just cut a release OR if a
+    # human explicitly dispatched. `always()` lets the job run even
+    # when release-please was skipped (workflow_dispatch path).
+    needs: release-please
+    if: >-
+      ${{
+        always() &&
+        (
+          needs.release-please.result == 'success' &&
+          needs.release-please.outputs.release_created == 'true'
+        ) ||
+        github.event_name == 'workflow_dispatch'
+      }}
     environment: npm-publish
     permissions:
       # id-token: write is what turns OIDC on — required for both
@@ -33,7 +90,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          # Prefer the manual ref; otherwise the tag release-please just
+          # created; otherwise the event's own ref (safety fallback).
+          ref: ${{ inputs.ref || needs.release-please.outputs.tag_name || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -59,7 +118,6 @@ jobs:
       - run: npm ci
 
       # Standard gate: lint + typecheck, then Rust + TS tests.
-      # `npm run test:ts` runs build:wasm + build:inline + vitest internally.
       - run: npm run check
       - run: npm run test
 
@@ -70,8 +128,8 @@ jobs:
         run: npm pack --dry-run
 
       - name: npm publish with provenance
-        # 1.0.0 was published manually from a maintainer machine. Trusted
-        # Publishing is configured on npmjs.com for this package/workflow,
-        # so no NODE_AUTH_TOKEN is needed — npm exchanges the OIDC token
-        # (`id-token: write` above) for a short-lived publish credential.
+        # Trusted Publishing is configured on npmjs.com for this
+        # package + workflow + environment, so npm exchanges the OIDC
+        # token (`id-token: write` above) for a short-lived publish
+        # credential. No NODE_AUTH_TOKEN needed.
         run: npm publish --provenance --access public
