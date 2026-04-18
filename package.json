@@ -65,7 +65,7 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build:wasm": "cargo build --release --target wasm32-unknown-unknown -p ultrachess-wasm && mkdir -p assets && cp target/wasm32-unknown-unknown/release/ultrachess_wasm.wasm assets/ultrachess.wasm && (command -v wasm-opt >/dev/null && wasm-opt -O4 --enable-bulk-memory --strip-debug --strip-producers assets/ultrachess.wasm -o assets/ultrachess.wasm.opt && mv assets/ultrachess.wasm.opt assets/ultrachess.wasm || true)",
+    "build:wasm": "cargo build --release --target wasm32-unknown-unknown -p ultrachess-wasm && mkdir -p assets && cp target/wasm32-unknown-unknown/release/ultrachess_wasm.wasm assets/ultrachess.wasm && node scripts/wasm-opt.mjs",
     "build:inline": "node scripts/generate-inline.mjs",
     "build:ts": "tsup",
     "build": "npm run build:wasm && npm run build:inline && npm run build:ts",
