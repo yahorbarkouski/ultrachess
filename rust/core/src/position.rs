@@ -747,8 +747,17 @@ impl Position {
     /// Art. 9.3). Matches chess.js's classification:
     /// - K vs K
     /// - K + single minor vs K
-    /// - K + B vs K + B with both bishops on the same color complex
+    /// - Any number of bishops, from either side, all confined to one
+    ///   colour complex (no knights, no pawns / rooks / queens)
+    ///
+    /// The third case generalises "K+B vs K+B same colour" to cover
+    /// positions like K+B+B vs K+B with all bishops on light squares —
+    /// these arise from captures in real games (the 100k differential
+    /// fuzz vs chess.js caught one at ply 73 of seed 3 before this
+    /// generalisation was in place).
     pub fn is_insufficient_material(&self) -> bool {
+        // Pawns or majors: always sufficient (pawns promote; a rook or
+        // queen mates alongside a bare king).
         let pawns = self.piece_bb(Color::White, PieceType::Pawn)
             | self.piece_bb(Color::Black, PieceType::Pawn);
         if pawns != 0 {
@@ -761,32 +770,34 @@ impl Position {
         if rooks_queens != 0 {
             return false;
         }
+
         let w_knights = self.piece_bb(Color::White, PieceType::Knight);
         let b_knights = self.piece_bb(Color::Black, PieceType::Knight);
         let w_bishops = self.piece_bb(Color::White, PieceType::Bishop);
         let b_bishops = self.piece_bb(Color::Black, PieceType::Bishop);
-        let w_minors = (w_knights | w_bishops).count_ones();
-        let b_minors = (b_knights | b_bishops).count_ones();
-        let total = w_minors + b_minors;
-        match total {
-            0 => true, // K vs K
-            1 => true, // K + single minor vs K
-            2 => {
-                // Only the two-bishops-same-color case.
-                if w_knights != 0 || b_knights != 0 {
-                    return false;
-                }
-                if w_bishops.count_ones() == 1 && b_bishops.count_ones() == 1 {
-                    // Light squares: bits where (file+rank) is odd.
-                    const LIGHT_SQUARES: Bitboard = 0x55AA_55AA_55AA_55AA;
-                    let w_light = (w_bishops & LIGHT_SQUARES) != 0;
-                    let b_light = (b_bishops & LIGHT_SQUARES) != 0;
-                    return w_light == b_light;
-                }
-                false
-            }
-            _ => false,
+        let total_minors =
+            (w_knights | b_knights | w_bishops | b_bishops).count_ones();
+
+        // K vs K and K + one minor vs K are always insufficient.
+        if total_minors <= 1 {
+            return true;
         }
+
+        // With more than one minor, insufficient only if:
+        //   1. No knights — knights + anything else can checkmate
+        //      (`chess.js` treats even K+NN vs K as sufficient, matching
+        //      us). Note: a lone knight + a bishop of any colour is
+        //      already ruled out by `total_minors <= 1` above.
+        //   2. All bishops occupy the same colour complex — the losing
+        //      side's king can always flee to the opposite colour.
+        if (w_knights | b_knights) != 0 {
+            return false;
+        }
+        const LIGHT_SQUARES: Bitboard = 0x55AA_55AA_55AA_55AA;
+        let bishops = w_bishops | b_bishops;
+        let on_light = bishops & LIGHT_SQUARES;
+        // All on light (== full set) or all on dark (== empty).
+        on_light == bishops || on_light == 0
     }
 
     /// Threefold repetition: the current position (hash) has occurred ≥ 3
