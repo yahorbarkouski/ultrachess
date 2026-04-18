@@ -1,9 +1,25 @@
 {
   "name": "ultrachess",
-  "version": "0.0.1-phase7",
+  "version": "1.0.0",
   "description": "Ultra-fast WASM-first chess library (Rust core + TypeScript shim).",
   "type": "module",
   "license": "MIT",
+  "author": "Yahor Barkouski",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yahorbarkouski/ultrachess.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yahorbarkouski/ultrachess/issues"
+  },
+  "homepage": "https://github.com/yahorbarkouski/ultrachess#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "sideEffects": false,
   "files": [
     "dist",
@@ -14,19 +30,34 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./inline": {
-      "types": "./dist/inline.d.ts",
-      "import": "./dist/inline.js",
-      "require": "./dist/inline.cjs"
+      "import": {
+        "types": "./dist/inline.d.ts",
+        "default": "./dist/inline.js"
+      },
+      "require": {
+        "types": "./dist/inline.d.cts",
+        "default": "./dist/inline.cjs"
+      }
     },
     "./low-level": {
-      "types": "./dist/low-level.d.ts",
-      "import": "./dist/low-level.js",
-      "require": "./dist/low-level.cjs"
+      "import": {
+        "types": "./dist/low-level.d.ts",
+        "default": "./dist/low-level.js"
+      },
+      "require": {
+        "types": "./dist/low-level.d.cts",
+        "default": "./dist/low-level.cjs"
+      }
     },
     "./package.json": "./package.json"
   },
@@ -49,7 +80,9 @@
     "fmt": "cargo fmt --all && biome format --write .",
     "fmt:check": "cargo fmt --all --check && biome format .",
     "lint": "cargo clippy --all-targets --workspace -- -D warnings && biome lint .",
-    "check": "npm run fmt:check && npm run lint && npm run typecheck"
+    "check": "npm run fmt:check && npm run lint && npm run typecheck",
+    "pack:dry": "npm pack --dry-run",
+    "prepublishOnly": "npm run check && npm run build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
