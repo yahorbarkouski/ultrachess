@@ -1,4 +1,9 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
+
+const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as {
+  version: string;
+};
 
 export default defineConfig({
   entry: {
@@ -20,4 +25,11 @@ export default defineConfig({
   // equivalent CJS expression (pathToFileURL(__filename)) so both formats
   // behave the same at runtime — the idiomatic dual-publish fix.
   shims: true,
+  // Inline the package version at build time so `export const VERSION`
+  // in src/index.ts resolves to the literal string from package.json.
+  // release-please bumps package.json on every release, so this stays
+  // in sync with no manual editing.
+  define: {
+    __ULTRACHESS_VERSION__: JSON.stringify(pkg.version),
+  },
 });

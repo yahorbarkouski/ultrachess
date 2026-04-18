@@ -1,5 +1,15 @@
 //! Public entry for ultrachess.
 
+/** Injected at build time from `package.json` via `tsup`'s `define`. */
+declare const __ULTRACHESS_VERSION__: string;
+
+/**
+ * The published package version (e.g. `"1.0.0"`). Baked in at build
+ * time from `package.json`, so it stays in sync with whatever release
+ * you installed. Useful for bug reports, telemetry, and version gates.
+ */
+export const VERSION: string = __ULTRACHESS_VERSION__;
+
 export {
   type BoardSquare,
   Chess,

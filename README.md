@@ -1,5 +1,9 @@
 # ultrachess
 
+[![npm version](https://img.shields.io/npm/v/ultrachess?color=%23cb3837&label=npm&logo=npm)](https://www.npmjs.com/package/ultrachess)
+[![install size](https://packagephobia.com/badge?p=ultrachess)](https://packagephobia.com/result?p=ultrachess)
+[![license](https://img.shields.io/npm/l/ultrachess)](./LICENSE)
+
 A Rust chess engine compiled to WebAssembly behind a typed TypeScript API with zero runtime dependencies. Legal move generation, FEN / SAN / PGN, perft, and Zobrist hashing at native-Rust speed
 
 - Fully legal move generation via pin masks + check masks
