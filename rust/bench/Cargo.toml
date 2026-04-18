@@ -1,0 +1,47 @@
+[package]
+name = "ultrachess-bench"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+publish = false
+description = "Benchmarks comparing ultrachess-core vs shakmaty / cozy-chess / chess."
+
+[dependencies]
+ultrachess-core = { path = "../core" }
+
+# Lichess's chess backend (Rust port of scalachess). Widely deployed, well
+# optimised, uses bitboards + magic lookups. THE reference we measure against.
+shakmaty = "0.27"
+
+# Cozy-chess: explicitly tuned for perft / search inner loops; one of the
+# fastest pure-Rust movegens published. Uses incremental legality + magic BBs.
+cozy-chess = "0.3"
+
+# jordanbray/chess — older but very popular Rust chess lib; good third point
+# of comparison.
+chess = "3.2"
+
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+[profile.bench]
+inherits = "release"
+debug = false
+
+# -- Perft NPS: custom harness. Criterion's overhead + sampling strategy isn't
+#    a good fit for multi-second perft runs. `nps` prints a clean markdown
+#    table and is what we cite in the README.
+[[bin]]
+name = "nps"
+path = "src/bin/nps.rs"
+
+# -- Single-call micro-benches (FEN/movegen/make-unmake) via criterion.
+[[bench]]
+name = "micro"
+harness = false

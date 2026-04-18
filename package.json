@@ -1,0 +1,68 @@
+{
+  "name": "ultrachessjs",
+  "version": "0.0.1-phase7",
+  "description": "Ultra-fast WASM-first chess library (Rust core + TypeScript shim).",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "assets/ultrachess.wasm",
+    "README.md",
+    "COMPAT.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./inline": {
+      "types": "./dist/inline.d.ts",
+      "import": "./dist/inline.js",
+      "require": "./dist/inline.cjs"
+    },
+    "./low-level": {
+      "types": "./dist/low-level.d.ts",
+      "import": "./dist/low-level.js",
+      "require": "./dist/low-level.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build:wasm": "cargo build --release --target wasm32-unknown-unknown -p ultrachess-wasm && mkdir -p assets && cp target/wasm32-unknown-unknown/release/ultrachess_wasm.wasm assets/ultrachess.wasm && (command -v wasm-opt >/dev/null && wasm-opt -O4 --enable-bulk-memory --strip-debug --strip-producers assets/ultrachess.wasm -o assets/ultrachess.wasm.opt && mv assets/ultrachess.wasm.opt assets/ultrachess.wasm || true)",
+    "build:inline": "node scripts/generate-inline.mjs",
+    "build:ts": "tsup",
+    "build": "npm run build:wasm && npm run build:inline && npm run build:ts",
+    "test:rust": "cargo test --release -p ultrachess-core",
+    "test:rust:deep": "cargo test --release -p ultrachess-core --test perft -- --ignored",
+    "test:ts": "vitest run",
+    "test": "npm run test:rust && npm run build:wasm && npm run build:inline && npm run test:ts",
+    "coverage:ts": "vitest run --coverage",
+    "coverage:rs": "cargo llvm-cov -p ultrachess-core --summary-only",
+    "coverage": "npm run coverage:rs && npm run build:wasm && npm run build:inline && npm run coverage:ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "keywords": [
+    "chess",
+    "wasm",
+    "webassembly",
+    "perft",
+    "fen",
+    "pgn",
+    "san",
+    "zobrist",
+    "chess.js"
+  ]
+}

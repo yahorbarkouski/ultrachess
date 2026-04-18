@@ -1,0 +1,46 @@
+[package]
+name = "ultrachess-ladder"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+publish = false
+description = "Pedagogical micro-benchmarks paired with docs/movegen-ladder.md. Each bench compares the current ultrachess-core code against an intentionally-regressed implementation of an earlier rung on the optimization ladder."
+
+[dependencies]
+ultrachess-core = { path = "../core" }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+[profile.bench]
+inherits = "release"
+debug = false
+
+# -- L11: Vec<Move> vs stack-allocated MoveList.
+[[bench]]
+name = "vec_vs_stack_movelist"
+harness = false
+
+# -- L34: MoveCounter (popcount-only) vs materialising MoveList at perft leaves.
+[[bench]]
+name = "count_vs_materialise"
+harness = false
+
+# -- L21: classical ray walk vs fancy magic bitboards.
+# Requires a standalone classical-rays reimplementation in src/classical.rs.
+# Stub-only for now.
+[[bench]]
+name = "classical_vs_magic"
+harness = false
+
+# -- L3 vs L23: pseudo-legal + filter vs fully-legal (Ellis-Jones).
+# Requires a standalone pseudo-legal generator in src/pseudo.rs.
+# Stub-only for now.
+[[bench]]
+name = "pseudo_filter_vs_ellis_jones"
+harness = false

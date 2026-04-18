@@ -1,0 +1,18 @@
+[package]
+name = "ultrachess-wasm"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WASM ABI wrapping ultrachess-core. Not published; consumed by the npm package."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ultrachess-core = { path = "../core" }
+
+[lints]
+workspace = true

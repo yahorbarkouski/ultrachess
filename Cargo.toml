@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["rust/core", "rust/wasm"]
+exclude = ["rust/bench", "rust/ladder"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+repository = "https://github.com/yahorbarkouski/ultrachessjs"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+needless_return = "allow"
+module_inception = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.bench]
+inherits = "release"
+debug = false
