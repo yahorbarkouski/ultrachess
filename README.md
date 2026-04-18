@@ -1,6 +1,6 @@
 # ultrachess
 
-A Rust chess engine compiled to WebAssembly, with a typed TypeScript API. Legal move generation, FEN / SAN / PGN, perft, and Zobrist hashing at native-Rust speed
+A Rust chess engine compiled to WebAssembly behind a typed TypeScript API with zero runtime dependencies. Legal move generation, FEN / SAN / PGN, perft, and Zobrist hashing at native-Rust speed
 
 - Fully legal move generation via pin masks + check masks
 - Magic bitboards for sliders; O(1) `inCheck()` and `hash()`
@@ -152,6 +152,14 @@ chess.isDraw();            // false        — threefold | 50-move | insufficien
 chess.isGameOver();        // false
 chess.hash();              // 0x9d39247e33776d41n — bigint, cached Zobrist
 
+// --- Migrating from chess.js? Object-form move and 8×8 board both work ---
+chess.move({ from: "d2", to: "d4" });       // convenience shim; see COMPAT.md
+const grid = chess.board();                   // 8×8, row 0 = rank 8, col 0 = file a
+
+// --- Reuse a single instance ---
+chess.reset();                                // back to startpos, history cleared
+chess.load("8/P7/8/8/8/8/4k3/7K w - - 0 1");  // swap in any FEN
+
 // --- Clone (independent handle) ---
 const fork = chess.clone();
 fork.move("Bc4");
@@ -197,7 +205,9 @@ Signatures are TypeScript. The `Chess` class is the primary surface; everything 
 | `Chess.fromFen(fen: string): Promise<Chess>`             | Alias for `create(fen)`.                        |
 | `Chess.createSync(fen?: string): Chess`                  | Inline entry only, after `initSync()`.          |
 | `Chess.loadPgn(pgn: string): Promise<Chess>`             | Parse PGN + replay mainline into a fresh instance. |
-| `chess.clone(): Chess`                                   | New handle, same position. History is reset.    |
+| `chess.clone(): Chess`                                   | New handle, same position. History is reset. Headers and position-keyed comments travel with the clone. |
+| `chess.reset(): void`                                    | Swap back to the starting position in place; clears history, headers, and comments. |
+| `chess.load(fen: string): void`                          | Replace the position with `fen` in place; clears history, headers, and comments. Throws `InvalidFenError` on bad input (current position preserved). |
 | `chess.dispose(): void`                                  | Free the WASM handle. Required unless using `using`. |
 | `chess[Symbol.dispose](): void`                          | TC39 Explicit Resource Management.              |
 
@@ -210,8 +220,10 @@ Signatures are TypeScript. The `Chess` class is the primary surface; everything 
 | `turn(): Color`                                          | `Color.White` (0) or `Color.Black` (1).         |
 | `halfmove(): number`                                     | 50-move rule counter (0–100).                   |
 | `fullmove(): number`                                     | Move number, starts at 1.                       |
+| `moveNumber(): number`                                   | Alias for `fullmove()` — chess.js-compatible name. |
 | `pieceAt(sq: number \| string): Piece \| null`           | Accepts `0..63` or `"e4"`.                      |
 | `ascii(): string`                                        | 8-line grid, rank 8 first, `.` for empty.       |
+| `board(): Array<Array<BoardSquare \| null>>`             | 8×8 view, row 0 = rank 8, col 0 = file a. Each cell is `{ square, index, type, color }` or `null`. |
 
 ### Game-end checks (all return `boolean`)
 
@@ -238,18 +250,19 @@ Signatures are TypeScript. The `Chess` class is the primary surface; everything 
 
 | Signature                                                | Notes                                           |
 |----------------------------------------------------------|-------------------------------------------------|
-| `moves(): string[]`                                      | SAN for every legal move.                       |
-| `moves(opts: { raw: true }): Move[]`                     | Packed u16, zero-allocation scratch buffer.     |
-| `moves(opts: { verbose: true }): VerboseMove[]`          | Full objects with `san`, `uci`, `captured`, ... |
+| `moves(opts?: { square?, piece? }): string[]`            | SAN for every legal move. Optional `square` / `piece` filters run client-side. |
+| `moves(opts: { raw: true, square?, piece? }): Move[]`    | Packed u16, zero-allocation scratch buffer.     |
+| `moves(opts: { verbose: true, square?, piece? }): VerboseMove[]` | Full objects with `san`, `uci`, `captured`, ... |
 | `legalMoves(): Move[]`                                   | Packed moves, same as `moves({ raw: true })`.   |
 | `legalMoveCount(): number`                               | Count only; cheaper than materialising.         |
 | `san(move: Move): string`                                | SAN for a packed move in the current position.  |
 | `parseSan(san: string): Move`                            | Throws `IllegalMoveError` on invalid SAN.       |
 | `verboseMove(move: Move): VerboseMove`                   | Derive a verbose descriptor.                    |
-| `move(input: string \| Move): Move`                      | Plays the move. Throws `IllegalMoveError`.      |
+| `move(input: string \| Move \| MoveInput): Move`         | Plays the move. `MoveInput = { from, to, promotion? }` is the chess.js-compatible object form (convenience — the packed `Move` path is still the fast path). |
+| `moveFromInput(input: MoveInput): Move`                  | Resolve `{ from, to, promotion? }` to a packed legal move without playing it. |
 | `undo(): Move \| null`                                   | Reverse the last move, or `null` if empty.      |
 | `history(): Move[]`                                      | Moves played through this instance.             |
-| `history(opts: { verbose: true }): VerboseMove[]`        | Same, derived.                                  |
+| `history(opts: { verbose: true, before?, after? }): VerboseMove[]` | Verbose records; opt-in `before` / `after` FEN capture per ply. |
 
 ### Editing (clears history + repetition stack)
 
@@ -265,8 +278,14 @@ Signatures are TypeScript. The `Chess` class is the primary surface; everything 
 | `headers(): Record<string, string>`                      | Insertion order; seven-tag roster first.        |
 | `header(key: string): string \| undefined`               | Single-key lookup.                              |
 | `setHeader(key: string, value?: string): void`           | Omit `value` to delete.                         |
-| `pgn(): string`                                          | Emitted with 80-column wrapping.                |
+| `setHeaders(record: Record<string, string \| undefined>): void` | Bulk-set; `undefined` deletes that key.    |
+| `pgn(opts?: { newline?, maxWidth? }): string`            | Defaults to `"\n"` / 80-column wrap. Pass `maxWidth: 0` to disable wrapping. |
 | `Chess.loadPgn(pgn: string): Promise<Chess>`             | Parse headers + replay the mainline.            |
+| `getComment(): string \| undefined`                      | Comment attached to the current position (keyed by Zobrist hash). |
+| `setComment(comment: string \| undefined): void`         | Attach a comment to the current position; `undefined` removes it. |
+| `removeComment(): string \| undefined`                   | Remove and return the comment at the current position. |
+| `getComments(): Array<{ fen, comment }>`                 | Every position-keyed comment reached while walking history, in play order. |
+| `removeComments(): void`                                 | Drop every position-keyed comment on this instance. |
 
 ### Perft
 
@@ -284,8 +303,10 @@ Exported from `ultrachess`:
 - `enum PieceType { Pawn = 0, Knight, Bishop, Rook, Queen, King }`.
 - `enum MoveKind { Normal = 0, Promotion, EnPassant, Castle }`.
 - `interface Piece { color: Color; type: PieceType }`.
-- `interface VerboseMove { fromIndex, toIndex, from, to, piece, color, captured?, promotion?, kind, san, uci }`.
-- `squareName(sq: number): string`, `parseSquare(name: string): number | null`.
+- `interface MoveInput { from: number | string; to: number | string; promotion?: PieceType }`.
+- `interface BoardSquare { square: string; index: number; type: PieceType; color: Color }`.
+- `interface VerboseMove { fromIndex, toIndex, from, to, piece, color, captured?, promotion?, kind, san, uci, before?, after? }`.
+- `squareName(sq: number): string`, `parseSquare(name: string): number | null`, `squareColor(sq): "light" | "dark" | null`.
 - `decodePiece(code: number): Piece | null`, `encodePiece(p: Piece): number`, `pieceChar(p: Piece): string`.
 - `STARTING_FEN` — the usual constant.
 

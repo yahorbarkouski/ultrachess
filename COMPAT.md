@@ -10,15 +10,21 @@ Nothing here is a judgement of chess.js. Where we compare behavior, we describe 
 |----------------------------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
 | `new Chess(fen?)` (synchronous)              | `await Chess.create(fen?)` / `Chess.createSync(fen?)` (inline entry)     | WebAssembly must be instantiated before any position exists. The `ultrachess/inline` entry embeds the `.wasm` as base64 and exposes a purely-synchronous path. |
 | `chess.move('e4')`                           | `chess.move('e4')`                                                       | Identical SAN acceptance path.                                                                   |
-| `chess.move({ from, to, promotion })`        | not supported — build a `Move` via `parseSan(...)` or the packed helpers | `Move` is a branded packed `u16` (`moveFrom`, `moveTo`, `moveKind`, `movePromotion`). Object-form `{from, to}` would require an extra legality search per call. |
+| `chess.move({ from, to, promotion? })`       | `chess.move({ from, to, promotion? })` (convenience shim)                | Accepted: we scan the legal-move list for a from/to/promotion match and resolve to a packed `Move`. The packed `Move` path is still the documented hot path — the object form is for migration ergonomics, not inner loops. See `src/chess.ts` `resolveMoveInput`. |
 | `moves({ verbose: true })` → flag-string + 9 fields | same call, `VerboseMove[]` with `kind: MoveKind` + explicit `captured?` / `promotion?` / `uci` | Discriminated, typed enum beats string flags for TS consumers. Every field is populated from the packed `Move` on demand, not stored. |
+| `moves({ square, piece })`                   | same call — client-side filter over the legal-move list                  | No extra WASM boundary crossing: the filter runs over the already-materialised packed moves. |
 | `chess.ascii()` → boxed grid with borders    | 8 lines × 8 chars, rank 8 first, `.` for empty, no separators            | Round-trips through snapshot tests; trivially diffable. See `rust/core/src/position.rs:748`.     |
-| `history({ verbose: true })` includes `before` / `after` FEN | `VerboseMove[]` only; no embedded FEN                        | `before` / `after` are derivable by walking `history()` or by cloning and replaying. Emitting them by default would run FEN serialization per move (95 ns native but a full boundary crossing in WASM). |
-| `chess.pgn({ newline, maxWidth })`           | `chess.pgn()` — seven-tag roster first, remaining headers in insertion order, 80-column wrap | PGN §8.1 (STR: seven-tag roster) and §8.2.6 (80-column wrap). Wrapping is not configurable today. See `src/chess.ts:593`. |
-| `chess.put({ type, color }, sq)` → `boolean` | `chess.put({ color, type }, sq)` → `Piece \| null`; **throws** on invalid | Field order in a TS object literal is irrelevant. The important change: we return the replaced piece (or `null`) and throw `RangeError` on an unplaceable piece. See `src/chess.ts:371`. |
+| `chess.board()` → 8×8 array of `{ square, type, color } \| null` | `chess.board()` → 8×8 array of `BoardSquare \| null` (row 0 = rank 8, col 0 = file a) | Returned cells include our enum-typed `type` / `color` plus `square` and `index`, matching chess.js's row/col orientation. See `src/chess.ts` `board()`. |
+| `history({ verbose: true })` → `before` / `after` FEN populated by default | opt in via `history({ verbose: true, before: true, after: true })` | FEN serialisation per ply is cheap natively but a full boundary crossing in WASM. Default stays lean; callers that want FENs pay for them explicitly. |
+| `chess.pgn({ newline, maxWidth })`           | `chess.pgn({ newline, maxWidth })` — defaults: `"\n"` and 80-column wrap (pass `maxWidth: 0` to disable wrapping) | PGN §8.1 (STR: seven-tag roster) and §8.2.6 (80-column wrap). See `src/chess.ts` `pgn()`. |
+| `chess.reset()` / `chess.load(fen)` / `chess.clear()` | `chess.reset()` / `chess.load(fen)` (no `clear()` — needs an ABI for the empty position) | `reset()` and `load(fen)` swap the underlying WASM slab slot in place, clearing history, headers, and position-keyed comments. `clear()` is tracked — it needs a new `ultrachess_new_empty()` export. |
+| `chess.put({ type, color }, sq)` → `boolean` | `chess.put({ color, type }, sq)` → `Piece \| null`; **throws** on invalid | Field order in a TS object literal is irrelevant. The important change: we return the replaced piece (or `null`) and throw `RangeError` on an unplaceable piece. See `src/chess.ts` `put()`. |
 | `chess.remove(sq)` → `Piece \| false`        | `chess.remove(sq)` → `Piece \| null`                                     | `Piece \| null` is the typed return. `false` cannot carry a piece, so the union was inconsistent. |
-| `chess.board()` → 8×8 array                  | not exposed                                                              | Today: iterate `pieceAt(0)` … `pieceAt(63)`. If you need the array form for a renderer, open an issue. |
-| `chess.validate_fen(fen)` (static)           | not exposed                                                              | `Chess.create(fen)` throws `InvalidFenError` on bad input; catch to validate. |
+| `chess.header(k, v, ...)` (variadic)         | `chess.setHeader(k, v)` / `chess.setHeaders({ ... })`                    | Our getter `header(k)` keeps a clean `string \| undefined` return type; bulk-setting is via a record. |
+| `chess.moveNumber()` / `chess.fullmove()`    | both names accepted — aliases                                            | Same underlying field; two names smooth migration and reduce churn in ported code. |
+| `chess.squareColor('a1')`                    | same — exported as a module helper (`squareColor(sq)`)                   | Pure TS helper returning `"light" \| "dark" \| null`. Accepts algebraic or 0..63 index. |
+| `chess.getComment()` / `chess.setComment(c)` / `chess.getComments()` / `chess.removeComment()` / `chess.removeComments()` | same names — but keyed by Zobrist `hash()` | Comments are stored in a TS-side `Map<bigint, string>`; the Rust core stays unaware. `getComments()` walks the played history and emits the comments at each reached position in order. |
+| `chess.validate_fen(fen)` (static)           | not exposed                                                              | `Chess.create(fen)` / `chess.load(fen)` throw `InvalidFenError` on bad input; catch to validate. |
 | error returns (`null` / `false`)             | typed exceptions (`IllegalMoveError`, `InvalidFenError`, `InvalidPgnError`, `DisposedError`, `AbiVersionMismatchError`) | Exceptions carry call-site context; return-sentinels do not. |
 
 ## Behavior we keep aligned
@@ -54,11 +60,11 @@ If a real-world PGN that you believe is well-formed is rejected, please file an 
 
 ### 3. `history()` is what was played through this instance
 
-`Chess.loadPgn` replays the parsed mainline through `move()`, so the PGN's moves end up in `history()`. A fresh `Chess.create()` followed by `put` / `remove` clears the history (`src/chess.ts:383`) — editing invalidates undo, because the pre-edit state is no longer reachable.
+`Chess.loadPgn` replays the parsed mainline through `move()`, so the PGN's moves end up in `history()`. A fresh `Chess.create()` followed by `put` / `remove` clears the history (see `src/chess.ts` `put`/`remove`) — editing invalidates undo, because the pre-edit state is no longer reachable. Same goes for `reset()` and `load(fen)`: they replace the position, so the old history no longer applies.
 
 ### 4. `clone()` copies TS-side state
 
-The Rust side's `clone` drops the undo stack by design (it's a snapshot of the board, not the game). The TS wrapper layers on top: the clone receives a copy of `moveStack` and the headers map (`src/chess.ts:654`). In practice that means `undo()` works on a clone back to where the parent was, and `pgn()` on a clone emits the same headers.
+The Rust side's `clone` drops the undo stack by design (it's a snapshot of the board, not the game). The TS wrapper layers on top: the clone receives a copy of the headers map and the position-keyed comment map (see `src/chess.ts` `clone()`). The returned instance has **no** move history — a clone is "the same board state, but ready for a fresh game," equivalent to `new Chess(original.fen())`. `pgn()` on a clone emits the same headers; comments attached to positions that survive in the clone's eventual play are still recalled by Zobrist hash.
 
 ### 5. `hash()` is a stable Zobrist key
 
@@ -81,14 +87,33 @@ Castling and a king-move-that-loses-castling-rights do **not** reset the halfmov
 
 `chess.dispose()` frees the underlying WASM slot. On TypeScript ≥5.2 / Node ≥22, `using` invokes it automatically at scope end (`chess[Symbol.dispose]()` at `src/chess.ts:665`). Calling any method on a disposed instance throws `DisposedError`.
 
+## Ergonomics we added for migration
+
+The following are TS-side shims that sit on top of the existing WASM ABI — none of them perturb the movegen / perft / hash hot paths. Every addition is tested against real board state and, in the case of the `move({from,to,promotion?})` shim, against chess.js's own legal-move classifier in [test/differential/vs-chess-js.test.ts](test/differential/vs-chess-js.test.ts).
+
+- `board()` — 8×8 array, row 0 = rank 8, col 0 = file a (chess.js orientation).
+- `reset()` / `load(fen)` — instance reuse; the underlying WASM slab slot is recycled.
+- `move({ from, to, promotion? })` — resolved to a packed `Move` via a legal-move scan. The packed `move(Move)` path is still the fast path.
+- `moveFromInput({ from, to, promotion? })` — resolve without playing.
+- `moves({ square, piece })` — client-side filter over the legal-move list.
+- `history({ verbose: true, before: true, after: true })` — opt-in FEN capture per ply.
+- `pgn({ newline, maxWidth })` — configurable newline and wrap width (`maxWidth: 0` disables wrapping).
+- `squareColor(sq)` — pure helper.
+- `moveNumber()` — alias for `fullmove()`.
+- `getComment()` / `setComment(c)` / `getComments()` / `removeComment()` / `removeComments()` — position-keyed comments (keyed by Zobrist hash; TS-only, zero impact on the core).
+- `setHeaders(record)` — bulk-set headers.
+
 ## Not exposed today
 
 These aren't differences with chess.js per se — they're things we simply don't ship yet. All are acceptable PRs if you need them:
 
-- `board()` 8×8 array accessor.
+- `clear()` — needs a new `ultrachess_new_empty()` ABI export. In the interim: `chess.load("8/8/8/8/8/4k3/8/4K3 w - - 0 1")` or equivalent with kings on any two squares (the one-king-per-side invariant still applies).
+- `getCastlingRights(color)` / `setCastlingRights(...)` — readable via `fen()` today, but a dedicated accessor needs a new ABI call.
+- `getEnPassantSquare()` / `setEnPassantSquare(...)` — same story.
+- PGN annotation exposure — the Rust core already parses `{...}` comments, `;...` line comments, `$N` NAGs, and `(...)` variations into a structured tree. The WASM ABI doesn't surface these accessors yet, so `Chess.loadPgn` currently drops them when replaying the mainline.
+- Lenient PGN parsing (`{ strict: false }` mode).
 - Chess960 / Fischer random castling.
 - Variants (atomic, antichess, crazyhouse, three-check, king-of-the-hill).
-- Configurable PGN wrap width or newline style.
 - Move notation other than SAN / UCI (e.g., ICCF numeric).
 
 If you're porting chess.js code that relies on any of these, the port will need structural changes, not just a rename.
