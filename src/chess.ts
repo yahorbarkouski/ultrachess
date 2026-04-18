@@ -34,6 +34,27 @@ import {
   type VerboseMove,
 } from "./move.js";
 
+/** One cell of `Chess.board()`. Null means empty. */
+export interface BoardSquare {
+  /** Algebraic square name (`"a8"`, `"h1"`, ...). */
+  square: string;
+  /** Zero-based square index (0 = a1, 63 = h8). */
+  index: number;
+  /** Piece type on the square. */
+  type: PieceType;
+  /** Piece color on the square. */
+  color: Color;
+}
+
+/** Object form accepted by `Chess.move`. Matches chess.js shape so migrating
+ *  callers don't have to rebuild to the packed `Move` API immediately. */
+export interface MoveInput {
+  from: number | string;
+  to: number | string;
+  /** Promotion piece (required when from/to land a pawn on its last rank). */
+  promotion?: PieceType;
+}
+
 export class DisposedError extends Error {
   constructor() {
     super("Chess instance has been disposed");
@@ -105,6 +126,9 @@ export class Chess {
   /** PGN headers (case-preserving insertion order). Populated by
    *  `loadPgn` and `setHeader`. */
   private readonly headerMap = new Map<string, string>();
+  /** Per-position comments keyed by Zobrist hash. Populated by `setComment`.
+   *  Stored in TS only — never touches the Rust core or the hot path. */
+  private readonly commentMap = new Map<bigint, string>();
   private disposed = false;
 
   private constructor(abi: UltrachessAbi, handle: number) {
@@ -268,6 +292,11 @@ export class Chess {
     return this.abi.ultrachess_fullmove(this.handle) >>> 0;
   }
 
+  /** chess.js-compatible alias for `fullmove()`. */
+  moveNumber(): number {
+    return this.fullmove();
+  }
+
   /** Piece at `square`, either as algebraic (`"e4"`) or numeric index. */
   pieceAt(square: number | string): Piece | null {
     this.requireAlive();
@@ -282,6 +311,34 @@ export class Chess {
     const cap = this.abi.ultrachess_string_scratch_cap();
     const len = this.abi.ultrachess_ascii_write(this.handle, 0, cap);
     return readStringScratch(this.abi, len);
+  }
+
+  /** 8×8 array of the current position, rank 8 first (row 0) through rank 1
+   *  (row 7), file a (col 0) through file h (col 7) — matching chess.js.
+   *  Empty squares are `null`. */
+  board(): Array<Array<BoardSquare | null>> {
+    this.requireAlive();
+    const out: Array<Array<BoardSquare | null>> = new Array(8);
+    for (let row = 0; row < 8; row++) {
+      const rank = 7 - row; // rank 8 → row 0
+      const line = new Array<BoardSquare | null>(8);
+      for (let file = 0; file < 8; file++) {
+        const idx = rank * 8 + file;
+        const code = this.abi.ultrachess_piece_at(this.handle, idx);
+        if (code === 255) {
+          line[file] = null;
+        } else {
+          line[file] = {
+            square: squareName(idx),
+            index: idx,
+            color: ((code >> 3) & 1) as Color,
+            type: (code & 0b111) as PieceType,
+          };
+        }
+      }
+      out[row] = line;
+    }
+    return out;
   }
 
   // --------------------------------------------------------------------
@@ -399,6 +456,37 @@ export class Chess {
     return result === PIECE_EMPTY ? null : decodePiece(result);
   }
 
+  /** Reset to the starting position. Clears move history, headers, and
+   *  per-position comments. The WASM handle is recycled — the existing
+   *  slab slot is freed and a fresh startpos slot is allocated. */
+  reset(): void {
+    this.requireAlive();
+    const fresh = this.abi.ultrachess_new_startpos();
+    this.abi.ultrachess_free(this.handle);
+    this.handle = fresh;
+    this.moveStack.length = 0;
+    this.headerMap.clear();
+    this.commentMap.clear();
+  }
+
+  /** Load a FEN into this instance, replacing the current position. Clears
+   *  move history, headers, and per-position comments (they belonged to the
+   *  previous game). Throws `InvalidFenError` on bad input; the current
+   *  position is preserved in that case. */
+  load(fen: string): void {
+    this.requireAlive();
+    const { ptr, len } = writeStringToScratch(this.abi, fen);
+    const fresh = this.abi.ultrachess_new_from_fen(ptr, len);
+    if (isInvalidHandle(fresh)) {
+      throw new InvalidFenError(fen);
+    }
+    this.abi.ultrachess_free(this.handle);
+    this.handle = fresh;
+    this.moveStack.length = 0;
+    this.headerMap.clear();
+    this.commentMap.clear();
+  }
+
   // --------------------------------------------------------------------
   // Move generation
   // --------------------------------------------------------------------
@@ -408,13 +496,39 @@ export class Chess {
    *  - `moves()` — SAN strings.
    *  - `moves({ raw: true })` — packed `Move` integers (fastest).
    *  - `moves({ verbose: true })` — `VerboseMove` objects (most informative).
+   *
+   *  All three forms accept optional filters:
+   *  - `square` — only moves originating from this square.
+   *  - `piece` — only moves of this piece type.
+   *
+   *  Filtering happens client-side over the already-materialised legal-move
+   *  list; it adds no WASM boundary crossings.
    */
-  moves(): string[];
-  moves(options: { raw: true }): Move[];
-  moves(options: { verbose: true }): VerboseMove[];
-  moves(options?: { raw?: boolean; verbose?: boolean }): string[] | Move[] | VerboseMove[] {
+  moves(options?: { square?: number | string; piece?: PieceType }): string[];
+  moves(options: { raw: true; square?: number | string; piece?: PieceType }): Move[];
+  moves(options: { verbose: true; square?: number | string; piece?: PieceType }): VerboseMove[];
+  moves(options?: {
+    raw?: boolean;
+    verbose?: boolean;
+    square?: number | string;
+    piece?: PieceType;
+  }): string[] | Move[] | VerboseMove[] {
     this.requireAlive();
-    const packed = this.legalMoves();
+    let packed = this.legalMoves();
+
+    if (options?.square !== undefined) {
+      const idx = typeof options.square === "string" ? parseSquare(options.square) : options.square;
+      if (idx === null || idx < 0 || idx >= 64) return [];
+      packed = packed.filter((m) => moveFromHelper(m) === idx);
+    }
+    if (options?.piece !== undefined) {
+      const wanted = options.piece;
+      packed = packed.filter((m) => {
+        const p = this.pieceAt(moveFromHelper(m));
+        return p !== null && p.type === wanted;
+      });
+    }
+
     if (options?.raw) return packed;
     if (options?.verbose) return packed.map((m) => this.verboseMove(m));
     return packed.map((m) => this.san(m));
@@ -505,11 +619,25 @@ export class Chess {
   // Make / undo
   // --------------------------------------------------------------------
 
-  /** Play a move (SAN string OR packed `Move`). Returns the packed move. */
-  move(input: string | Move): Move {
+  /** Play a move. Accepts three forms:
+   *
+   *  - packed `Move` integer — the fast path (zero overhead).
+   *  - SAN string (`"Nf3"`, `"e4"`, `"O-O"`) — parsed via the SAN parser.
+   *  - `{ from, to, promotion? }` — chess.js-compatible object form. Resolves
+   *    to a packed `Move` by scanning the legal-move list for a match; this
+   *    is a convenience shim for migrating callers, not a hot path.
+   *
+   *  Returns the packed move that was played. */
+  move(input: string | Move | MoveInput): Move {
     this.requireAlive();
-    const packed: number =
-      typeof input === "string" ? (this.parseSan(input) as number) : (input as number);
+    let packed: number;
+    if (typeof input === "string") {
+      packed = this.parseSan(input) as number;
+    } else if (typeof input === "number") {
+      packed = input as number;
+    } else {
+      packed = this.resolveMoveInput(input) as number;
+    }
     const status = this.abi.ultrachess_make_move(this.handle, packed);
     switch (status) {
       case MAKE_MOVE_OK:
@@ -518,13 +646,52 @@ export class Chess {
       case MAKE_MOVE_INVALID_HANDLE:
         throw new DisposedError();
       case MAKE_MOVE_ILLEGAL:
-        throw new IllegalMoveError(`illegal move: ${String(input)}`);
+        throw new IllegalMoveError(`illegal move: ${describeMoveInput(input)}`);
       default:
         throw new Error(
           `ultrachess: ultrachess_make_move returned unexpected status ${status} ` +
             `(expected 0/1/2). The bundled .wasm is out of sync with the TS shim.`,
         );
     }
+  }
+
+  /** Resolve a `{ from, to, promotion? }` object to a packed legal move in
+   *  the current position. Throws `IllegalMoveError` if no legal move matches.
+   *  Exposed for callers that want the packed form without playing the move. */
+  moveFromInput(input: MoveInput): Move {
+    this.requireAlive();
+    return this.resolveMoveInput(input);
+  }
+
+  private resolveMoveInput(input: MoveInput): Move {
+    const fromIdx = typeof input.from === "string" ? parseSquare(input.from) : input.from;
+    const toIdx = typeof input.to === "string" ? parseSquare(input.to) : input.to;
+    if (fromIdx === null || fromIdx < 0 || fromIdx >= 64) {
+      throw new IllegalMoveError(`invalid from square: ${String(input.from)}`);
+    }
+    if (toIdx === null || toIdx < 0 || toIdx >= 64) {
+      throw new IllegalMoveError(`invalid to square: ${String(input.to)}`);
+    }
+    const wantedPromo = input.promotion;
+    const packed = this.legalMoves();
+    for (const m of packed) {
+      if (moveFromHelper(m) !== fromIdx || moveToHelper(m) !== toIdx) continue;
+      if (moveKindHelper(m) === MoveKind.Promotion) {
+        // Promotion: caller must specify the target piece to disambiguate
+        // N/B/R/Q. Without it we cannot pick a move.
+        if (wantedPromo === undefined) continue;
+        if (movePromotionHelper(m) !== wantedPromo) continue;
+      } else if (wantedPromo !== undefined) {
+        // Caller asked for promotion on a non-promotion move — not a match.
+        continue;
+      }
+      return m;
+    }
+    throw new IllegalMoveError(
+      `illegal move: { from: ${String(input.from)}, to: ${String(input.to)}` +
+        (input.promotion !== undefined ? `, promotion: ${input.promotion}` : "") +
+        ` }`,
+    );
   }
 
   /** Undo the most recently made move. Returns the move that was undone,
@@ -538,32 +705,55 @@ export class Chess {
     return packed as Move;
   }
 
-  /** Move history played through this object (packed or verbose). */
+  /** Move history played through this object.
+   *
+   *  - `history()` — packed `Move[]` (fastest; zero FEN/SAN work).
+   *  - `history({ verbose: true })` — `VerboseMove[]` with SAN + UCI + captured.
+   *  - `history({ verbose: true, before: true, after: true })` — same, with
+   *    the FEN before/after each move. Opt-in because each ply adds a FEN
+   *    write; the default verbose path stays cheap.
+   */
   history(): Move[];
-  history(options: { verbose: true }): VerboseMove[];
-  history(options?: { verbose?: boolean }): Move[] | VerboseMove[] {
+  history(options: { verbose: true; before?: boolean; after?: boolean }): VerboseMove[];
+  history(options?: {
+    verbose?: boolean;
+    before?: boolean;
+    after?: boolean;
+  }): Move[] | VerboseMove[] {
     this.requireAlive();
-    if (options?.verbose) {
-      // O(n) make/unmake pairs: rewind to the start, then replay while
-      // snapshotting each position for `verboseMove`.
-      const n = this.moveStack.length;
-      if (n === 0) return [];
-      const popped: number[] = [];
-      for (let i = 0; i < n; i++) {
-        const last = this.moveStack[this.moveStack.length - 1]!;
-        this.abi.ultrachess_undo_with_move(this.handle, last);
-        popped.push(this.moveStack.pop()!);
-      }
-      const verbose = new Array<VerboseMove>(n);
-      for (let i = 0; i < n; i++) {
-        const m = popped[popped.length - 1 - i]! as Move;
-        verbose[i] = this.verboseMove(m);
-        this.abi.ultrachess_make_move(this.handle, m as number);
-        this.moveStack.push(m as number);
-      }
-      return verbose;
+    if (!options?.verbose) {
+      return this.moveStack.slice() as Move[];
     }
-    return this.moveStack.slice() as Move[];
+    // Rebuild verbose records by walking backward through the history,
+    // reconstructing each position by undoing moves, taking the verbose
+    // snapshot, then redoing. Runs in O(n) make/unmake pairs.
+    const n = this.moveStack.length;
+    if (n === 0) return [];
+
+    const wantBefore = options?.before === true;
+    const wantAfter = options?.after === true;
+
+    // Undo all.
+    const popped: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const last = this.moveStack[this.moveStack.length - 1]!;
+      this.abi.ultrachess_undo_with_move(this.handle, last);
+      popped.push(this.moveStack.pop()!);
+    }
+    // Replay and record.
+    const verbose = new Array<VerboseMove>(n);
+    for (let i = 0; i < n; i++) {
+      const m = popped[popped.length - 1 - i]! as Move;
+      const beforeFen = wantBefore ? this.fen() : undefined;
+      const snapshot = this.verboseMove(m);
+      this.abi.ultrachess_make_move(this.handle, m as number);
+      this.moveStack.push(m as number);
+      const afterFen = wantAfter ? this.fen() : undefined;
+      if (beforeFen !== undefined) snapshot.before = beforeFen;
+      if (afterFen !== undefined) snapshot.after = afterFen;
+      verbose[i] = snapshot;
+    }
+    return verbose;
   }
 
   // --------------------------------------------------------------------
@@ -592,10 +782,33 @@ export class Chess {
     }
   }
 
-  /** Emit a PGN string for the current game (headers + mainline).
-   *  Wraps movetext at ~80 columns per PGN §8.2.6. */
-  pgn(): string {
+  /** Bulk-set headers from a record. Keys present in `record` overwrite;
+   *  other headers are left alone. Pass `undefined` for a key to delete it.
+   *  Convenient for migrating from `chess.header(k1, v1, k2, v2, ...)`. */
+  setHeaders(record: Record<string, string | undefined>): void {
     this.requireAlive();
+    for (const [k, v] of Object.entries(record)) {
+      if (v === undefined) {
+        this.headerMap.delete(k);
+      } else {
+        this.headerMap.set(k, v);
+      }
+    }
+  }
+
+  /** Emit a PGN string for the current game (headers + mainline).
+   *
+   *  Implementation: walks the history (via make/unmake) to compute the SAN
+   *  in each position, then serialises with 80-column wrapping per PGN §8.2.6.
+   *
+   *  Options:
+   *  - `newline` — the newline sequence to join lines with. Defaults to `"\n"`.
+   *  - `maxWidth` — movetext wrap width. Defaults to 80 (PGN §8.2.6). Pass
+   *    `0` to disable wrapping and emit the movetext on a single line. */
+  pgn(options?: { newline?: string; maxWidth?: number }): string {
+    this.requireAlive();
+    const newline = options?.newline ?? "\n";
+    const maxWidth = options?.maxWidth ?? 80;
     const verboseHistory = this.history({ verbose: true });
     const out: string[] = [];
 
@@ -614,9 +827,10 @@ export class Chess {
     }
     if (out.length > 0) out.push("");
 
+    // Movetext, wrapped at `maxWidth` columns (or unwrapped if maxWidth <= 0).
     let line = "";
     const push = (tok: string) => {
-      if (line.length > 0 && line.length + 1 + tok.length > 80) {
+      if (maxWidth > 0 && line.length > 0 && line.length + 1 + tok.length > maxWidth) {
         out.push(line);
         line = "";
       }
@@ -633,7 +847,90 @@ export class Chess {
     push(result);
     if (line.length > 0) out.push(line);
 
-    return `${out.join("\n")}\n`;
+    return `${out.join(newline)}${newline}`;
+  }
+
+  // --------------------------------------------------------------------
+  // Position-keyed comments (TS-only; never touches the Rust core)
+  // --------------------------------------------------------------------
+
+  /** Get the comment attached to the current position, or `undefined`. */
+  getComment(): string | undefined {
+    this.requireAlive();
+    return this.commentMap.get(this.hash());
+  }
+
+  /** Attach a comment to the current position. Pass `undefined` to remove. */
+  setComment(comment: string | undefined): void {
+    this.requireAlive();
+    const key = this.hash();
+    if (comment === undefined) {
+      this.commentMap.delete(key);
+    } else {
+      this.commentMap.set(key, comment);
+    }
+  }
+
+  /** Remove the comment at the current position, returning its previous
+   *  value (or `undefined` if there wasn't one). */
+  removeComment(): string | undefined {
+    this.requireAlive();
+    const key = this.hash();
+    const prev = this.commentMap.get(key);
+    this.commentMap.delete(key);
+    return prev;
+  }
+
+  /** Every position-keyed comment known to this instance, as an array of
+   *  `{ fen, comment }` pairs, ordered by the first time each commented
+   *  position appears when walking the game from the start. Positions that
+   *  repeat (e.g. threefold) emit once, at their first occurrence. */
+  getComments(): Array<{ fen: string; comment: string }> {
+    this.requireAlive();
+    const out: Array<{ fen: string; comment: string }> = [];
+    const n = this.moveStack.length;
+
+    if (n === 0) {
+      const c = this.commentMap.get(this.hash());
+      if (c !== undefined) out.push({ fen: this.fen(), comment: c });
+      return out;
+    }
+
+    // Walk backward to the start-of-game position.
+    const popped: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const last = this.moveStack[this.moveStack.length - 1]!;
+      this.abi.ultrachess_undo_with_move(this.handle, last);
+      this.moveStack.pop();
+      popped.push(last);
+    }
+
+    const seen = new Set<bigint>();
+    const emitHere = () => {
+      const h = this.hash();
+      if (seen.has(h)) return;
+      const c = this.commentMap.get(h);
+      if (c !== undefined) {
+        seen.add(h);
+        out.push({ fen: this.fen(), comment: c });
+      }
+    };
+
+    // Record the start position, then each position reached by replay.
+    emitHere();
+    for (let i = 0; i < n; i++) {
+      const m = popped[popped.length - 1 - i]!;
+      this.abi.ultrachess_make_move(this.handle, m);
+      this.moveStack.push(m);
+      emitHere();
+    }
+    return out;
+  }
+
+  /** Drop every position-keyed comment attached to this instance. */
+  removeComments(): void {
+    this.requireAlive();
+    this.commentMap.clear();
   }
 
   // --------------------------------------------------------------------
@@ -657,6 +954,7 @@ export class Chess {
     if (isInvalidHandle(handle)) throw new DisposedError();
     const copy = new Chess(this.abi, handle);
     for (const [k, v] of this.headerMap) copy.headerMap.set(k, v);
+    for (const [k, v] of this.commentMap) copy.commentMap.set(k, v);
     return copy;
   }
 
@@ -673,4 +971,11 @@ export class Chess {
 
 function escapeHeader(v: string): string {
   return v.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function describeMoveInput(input: string | Move | MoveInput): string {
+  if (typeof input === "string") return input;
+  if (typeof input === "number") return `0x${input.toString(16)}`;
+  const base = `{ from: ${String(input.from)}, to: ${String(input.to)}`;
+  return input.promotion !== undefined ? `${base}, promotion: ${input.promotion} }` : `${base} }`;
 }
