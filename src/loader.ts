@@ -92,8 +92,7 @@ export interface UltrachessAbi {
 }
 
 let cached: Promise<UltrachessAbi> | null = null;
-/** The resolved ABI, available as soon as init completes — avoids the
- *  `await Promise.resolve(...)` detour when a sync path is needed. */
+/** Resolved ABI for synchronous access once init has completed. */
 let cachedAbi: UltrachessAbi | null = null;
 
 /** Must match `ABI_VERSION` in `rust/wasm/src/lib.rs`. */
@@ -122,12 +121,9 @@ export async function init(override?: BufferSource): Promise<UltrachessAbi> {
   return cached;
 }
 
-/** Synchronously instantiate from a caller-supplied buffer. Used by the
- *  `ultrachess/inline` entry where the WASM is embedded as base64 and no
- *  I/O is required. Throws on version mismatch.
- *
- *  Primes the async `init()` cache, so subsequent `await init()` calls
- *  resolve immediately with the same ABI instance. */
+/** Synchronously instantiate from caller-supplied WASM bytes (used by the
+ *  `ultrachess/inline` entry). Primes the async `init()` cache so subsequent
+ *  `await init()` calls resolve with the same instance. Throws on version mismatch. */
 export function initSync(bytes: BufferSource): UltrachessAbi {
   if (cachedAbi) return cachedAbi;
   const module = new WebAssembly.Module(bytes);
@@ -142,8 +138,7 @@ export function initSync(bytes: BufferSource): UltrachessAbi {
   return exports;
 }
 
-/** Return the initialised ABI if available, else `null`. Useful for sync
- *  callers that don't want to trigger I/O. */
+/** Resolved ABI if initialised, else `null`. */
 export function getAbi(): UltrachessAbi | null {
   return cachedAbi;
 }
@@ -206,18 +201,17 @@ export function writeStringToScratch(abi: UltrachessAbi, s: string): { ptr: numb
   return { ptr, len: bytes.length };
 }
 
-/** Read `len` bytes at `ptr` as a UTF-8 string. */
+/** Read `len` bytes at `ptr` as a UTF-8 string. `len` is clamped to the
+ *  available buffer — WASM may return the untruncated full length so the
+ *  caller can detect and retry. */
 export function readStringFromMemory(abi: UltrachessAbi, ptr: number, len: number): string {
-  // Clamp: WASM might return a full length larger than the scratch cap (our
-  // contract lets callers detect truncation). Consumers should never pass
-  // a stale cap here; we guard defensively anyway.
   const buf = abi.memory.buffer;
   const safe = Math.max(0, Math.min(len, buf.byteLength - ptr));
   return decoder.decode(new Uint8Array(buf, ptr, safe));
 }
 
-/** Read the string currently written into the string scratch at `len` bytes.
- *  Convenience for ABI calls that write into scratch when out_ptr == 0. */
+/** Read `len` bytes from the string scratch. Convenience for ABI calls
+ *  that write into scratch when `out_ptr == 0`. */
 export function readStringScratch(abi: UltrachessAbi, len: number): string {
   return readStringFromMemory(
     abi,

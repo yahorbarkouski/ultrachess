@@ -65,14 +65,10 @@ pub struct Position {
 }
 
 impl Clone for Position {
-    /// Cloning a `Position` produces a **fresh** position with the same
-    /// board state but an empty history. This matches what downstream
-    /// users almost always want ("snapshot this state"); preserving the
-    /// undo stack across clones would cost heap allocation and surprise
-    /// consumers like chess.js's `new Chess(otherChess.fen())` flow.
-    ///
-    /// The returned position re-derives its zobrist hash from the source
-    /// (no recomputation) and its checker cache is copied verbatim.
+    /// Board-state snapshot with an **empty** history. Mirrors what
+    /// `new Chess(other.fen())` does in chess.js — preserving the undo
+    /// stack would cost a heap copy on every clone and surprise callers.
+    /// Zobrist and checker caches are copied verbatim.
     #[inline]
     fn clone(&self) -> Self {
         Self {
@@ -84,8 +80,6 @@ impl Clone for Position {
             ep_square: self.ep_square,
             halfmove: self.halfmove,
             fullmove: self.fullmove,
-            // Vec::new() is zero-cost (no heap alloc). The cloned position
-            // will grow its own history on demand.
             history: Vec::new(),
             zobrist: self.zobrist,
             history_hashes: Vec::new(),
@@ -211,80 +205,52 @@ impl Position {
     // -- ep legality ---------------------------------------------------------
 
     /// True iff at least one *fully legal* en-passant capture to `ep_sq`
-    /// exists for `capturer` in the current piece geometry.
+    /// exists for `capturer` — i.e. pseudo-legal AND not leaving the king
+    /// in check (the classic "EP discovered check" edge case, where
+    /// removing both pawns on the same rank exposes a slider).
     ///
-    /// ## Why full legality, not pseudo-legal
-    /// A pawn whose geometric move would land on `ep_sq` may still be
-    /// pinned, or the EP may uncover a rank-discovered rook/queen attack
-    /// on the capturer's king (the classic "EP discovered check" edge case
-    /// — removing *both* the capturer pawn and the just-pushed enemy pawn
-    /// on the same rank can expose the king). chess.js and the X-FEN 2020
-    /// spec both require full legality; anything looser and our FEN output
-    /// diverges, and our Zobrist hashes conflate semantically-distinct
-    /// positions for repetition / TT purposes.
+    /// X-FEN 2020 and chess.js require full legality; looser definitions
+    /// would make FEN output and Zobrist hashes conflate semantically-
+    /// distinct positions. Caching the answer in `ep_square` at
+    /// make-move time lets `movegen` skip the entire EP block whenever
+    /// `ep_square` is `None`.
     ///
-    /// ## Why this is free
-    /// The same simulation runs inside `movegen.rs` when emitting EP moves.
-    /// By caching the answer in `ep_square` at make-move time, we pay the
-    /// check once per double pawn push (~30 ns at most, ~3 ns in the
-    /// common no-attacker fast path) and movegen skips the whole EP block
-    /// entirely whenever `ep_square` is None. For positions visited
-    /// repeatedly during search, this is a net speedup.
-    ///
-    /// ## Why this takes `capturer` explicitly
-    /// Callable from `make_move` *before* the side-to-move flip (where
-    /// `capturer = them`) and from `parse_fen` (where `capturer =
-    /// side_to_move`). Both pre-flip and post-parse states are expressed
-    /// without further bookkeeping.
-    pub(crate) fn ep_capture_is_legal_for(
-        &self,
-        ep_sq: Square,
-        capturer: Color,
-    ) -> bool {
+    /// Takes `capturer` explicitly so both callers work unchanged:
+    /// `make_move` (pre-flip, capturer = them) and `parse_fen`
+    /// (capturer = side_to_move).
+    pub(crate) fn ep_capture_is_legal_for(&self, ep_sq: Square, capturer: Color) -> bool {
         let pusher = capturer.opponent();
 
-        // Pseudo-legal capturers: capturer pawns whose attack set covers
-        // `ep_sq`. Pawn-attack geometry is mirror-symmetric by colour, so
-        // the squares *from which* a capturer-coloured pawn attacks `ep_sq`
-        // are exactly `pawn_attacks(pusher, ep_sq)`.
+        // Pawn-attack geometry is mirror-symmetric, so the squares from
+        // which a `capturer` pawn attacks `ep_sq` are `pawn_attacks(pusher, ep_sq)`.
         let attack_from_mask = tables::pawn_attacks(pusher, ep_sq.0);
         let mut capturers = attack_from_mask & self.piece_bb(capturer, PieceType::Pawn);
         if capturers == 0 {
-            return false; // fast path: no pseudo-legal capturer at all
+            return false;
         }
 
-        // The pushed pawn sits on `ep_sq`'s file, one rank toward the
-        // capturer (it just double-pushed *past* ep_sq).
         let pushed_pawn_sq = match capturer {
             Color::White => Square::from_file_rank(ep_sq.file(), ep_sq.rank() - 1),
             Color::Black => Square::from_file_rank(ep_sq.file(), ep_sq.rank() + 1),
         };
 
         let king_sq = self.king_sq(capturer);
-        let pusher_rq = self.piece_bb(pusher, PieceType::Rook)
-            | self.piece_bb(pusher, PieceType::Queen);
-        let pusher_bq = self.piece_bb(pusher, PieceType::Bishop)
-            | self.piece_bb(pusher, PieceType::Queen);
+        let pusher_rq =
+            self.piece_bb(pusher, PieceType::Rook) | self.piece_bb(pusher, PieceType::Queen);
+        let pusher_bq =
+            self.piece_bb(pusher, PieceType::Bishop) | self.piece_bb(pusher, PieceType::Queen);
         let occ = self.occupied();
 
         while capturers != 0 {
             let from = bitboard::pop_lsb(&mut capturers);
-            // EP delta on the board: two removals (capturer pawn and the
-            // pushed enemy pawn, both on the capturer's 4th/5th rank) +
-            // one addition (capturer pawn lands on ep_sq).
+            // EP delta: two removals (both pawns) + one addition (at ep_sq).
+            // Only sliders' visibility changes; non-slider threats are unaffected.
             let sim_occ = (occ ^ from.bb() ^ pushed_pawn_sq.bb()) | ep_sq.bb();
 
-            // Non-slider threats don't change: knight / enemy king / other
-            // enemy pawns all sit unchanged. The only new or removed
-            // threats are slider visibilities through the modified
-            // occupancy — and if the pushed pawn was delivering pawn
-            // check, it's already gone from `sim_occ`.
-            let rook_hit = tables::rook_attacks(king_sq.0, sim_occ) & pusher_rq;
-            if rook_hit != 0 {
+            if tables::rook_attacks(king_sq.0, sim_occ) & pusher_rq != 0 {
                 continue;
             }
-            let bishop_hit = tables::bishop_attacks(king_sq.0, sim_occ) & pusher_bq;
-            if bishop_hit != 0 {
+            if tables::bishop_attacks(king_sq.0, sim_occ) & pusher_bq != 0 {
                 continue;
             }
             return true;
@@ -360,10 +326,7 @@ impl Position {
         self.checkers
     }
 
-    /// Constant-time check: is the side to move in check?
-    ///
-    /// Reads the cached `checkers` bitboard — ~0.4 ns versus the ~3 ns
-    /// a fresh attackers-to computation would cost.
+    /// Is the side to move in check? O(1) cache read.
     #[inline(always)]
     pub fn in_check(&self) -> bool {
         self.checkers != 0
@@ -383,7 +346,6 @@ impl Position {
         );
         let pt = piece.piece_type();
 
-        // Snapshot state the undo record and zobrist delta need.
         let prev_ep = self.ep_square;
         let prev_castling = self.castling;
         let prev_halfmove = self.halfmove;
@@ -393,7 +355,7 @@ impl Position {
         // Record current hash for threefold-repetition lookup.
         self.history_hashes.push(prev_zobrist);
 
-        // Strip old EP from hash (before deciding the new one).
+        // Strip the old EP key before deciding the new one.
         if let Some(ep) = prev_ep {
             self.zobrist ^= zobrist::ep_file(ep.file());
         }
@@ -417,7 +379,6 @@ impl Position {
                     self.zobrist ^= zobrist::piece_square(cap.color(), cap.piece_type(), to);
                     captured = cap;
                 }
-                // Remove the pawn at `from`, place the promoted piece at `to`.
                 self.remove_piece(from);
                 let promoted_pt = m.promotion_piece();
                 self.place_piece(to, Piece::new(us, promoted_pt));
@@ -450,15 +411,10 @@ impl Position {
             }
         }
 
-        // New EP square: only set on a double pawn push *when the capture
-        // is fully legal for the opponent* (X-FEN 2020 / chess.js
-        // convention). `ep_capture_is_legal_for` does the pseudo-legal
-        // filter plus a rank-discovered-check simulation; it returns
-        // false instantly when no pseudo-legal capturer exists (the
-        // common case), so the amortised cost is negligible. Storing the
-        // legality in `ep_square` lets `movegen.rs` skip its own EP
-        // analysis on subsequent visits — a net perft win for positions
-        // visited repeatedly during search.
+        // New EP square: only set on a double pawn push AND only when the
+        // capture is fully legal for the opponent (X-FEN 2020). Caching
+        // legality here lets `movegen` skip its EP block when `ep_square`
+        // is None — see `ep_capture_is_legal_for`.
         let mut new_ep = None;
         if pt == PieceType::Pawn {
             let diff = to.0 as i32 - from.0 as i32;
@@ -482,19 +438,11 @@ impl Position {
             self.castling = new_castling;
         }
 
-        // Halfmove / fullmove clocks.
-        //
-        // `halfmove` uses `saturating_add` rather than `wrapping_add`: a
-        // pathological FEN-loaded position with `halfmove == u16::MAX` and
-        // a quiet non-pawn move would otherwise wrap the counter back to 0,
-        // silently defeating the 50-move rule (`halfmove >= 100`). The
-        // restore in `unmake_move` reads `prev_halfmove` from the `Undo`
-        // record, so saturation does not break make/unmake symmetry.
-        //
-        // `fullmove` keeps `wrapping_add` because `unmake_move` mirrors it
-        // with `wrapping_sub` and there is no saved `prev_fullmove` —
-        // make/unmake symmetry would break otherwise. No chess rule depends
-        // on the absolute fullmove value.
+        // `halfmove` uses `saturating_add`: wrapping `u16::MAX → 0` on a
+        // pathological FEN would silently defeat the 50-move rule. Undo
+        // restores from `prev_halfmove`, so saturation is symmetric.
+        // `fullmove` stays wrapping so `unmake_move` can mirror with
+        // `wrapping_sub` (no `prev_fullmove` is stored).
         if pt == PieceType::Pawn || captured.is_some() {
             self.halfmove = 0;
         } else {
@@ -504,14 +452,10 @@ impl Position {
             self.fullmove = self.fullmove.wrapping_add(1);
         }
 
-        // Flip side to move.
         self.side_to_move = them;
         self.zobrist ^= zobrist::side_to_move();
 
-        // Refresh the cached checkers bitboard for the new side to move.
-        // This is the one non-trivial new cost of the full make path
-        // (~3 ns per call from `attackers_to`), paid to keep `is_check()`
-        // and related API calls constant-time.
+        // Refresh the `checkers` cache so `in_check()` stays O(1).
         let new_king_sq = self.king_sq(them);
         let new_occ = self.color_bb[0] | self.color_bb[1];
         self.checkers = self.attackers_to(new_king_sq, us, new_occ);
@@ -582,8 +526,7 @@ impl Position {
             }
         }
 
-        // New EP square — same full-legality rule as `make_move`, without
-        // the hash update. See `ep_capture_is_legal_for` for the rationale.
+        // Same full-legality rule as `make_move`, without the hash update.
         let mut new_ep = None;
         if pt == PieceType::Pawn {
             let diff = to.0 as i32 - from.0 as i32;
@@ -596,7 +539,6 @@ impl Position {
         }
         self.ep_square = new_ep;
 
-        // Castling rights.
         let new_castling = update_castling(self.castling, from, to);
         if new_castling != self.castling {
             self.castling = new_castling;
@@ -604,11 +546,9 @@ impl Position {
 
         self.side_to_move = them;
 
-        // Minimal Undo record. Zobrist / halfmove / checkers unused by
-        // `unmake_move_perft`; zeroed so that if the slow `unmake_move` is
-        // accidentally called after a perft make, it reads zeroes (not
-        // stale data) — still incorrect, but flagged by invariants rather
-        // than corrupting state.
+        // Zero the fields unused by `unmake_move_perft` — if the slow
+        // `unmake_move` is accidentally called after a perft make, the
+        // mismatch shows up in invariants instead of corrupting state.
         self.history.push(Undo {
             captured,
             prev_castling,
@@ -681,7 +621,7 @@ impl Position {
         self.ep_square = undo.prev_ep;
         self.halfmove = undo.prev_halfmove;
         self.zobrist = undo.prev_zobrist; // flat restore; no XOR reversal
-        self.checkers = undo.prev_checkers; // flat restore of cached checkers
+        self.checkers = undo.prev_checkers;
         if us == Color::Black {
             self.fullmove = self.fullmove.wrapping_sub(1);
         }
@@ -775,8 +715,7 @@ impl Position {
         let b_knights = self.piece_bb(Color::Black, PieceType::Knight);
         let w_bishops = self.piece_bb(Color::White, PieceType::Bishop);
         let b_bishops = self.piece_bb(Color::Black, PieceType::Bishop);
-        let total_minors =
-            (w_knights | b_knights | w_bishops | b_bishops).count_ones();
+        let total_minors = (w_knights | b_knights | w_bishops | b_bishops).count_ones();
 
         // K vs K and K + one minor vs K are always insufficient.
         if total_minors <= 1 {

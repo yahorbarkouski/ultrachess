@@ -1,18 +1,15 @@
-//! Precomputed attack tables.
+//! Precomputed attack tables, `const`-initialised at compile time.
 //!
-//! All tables are `const`-initialized at compile time. They are small enough
-//! to live in the binary (≈50 KiB total). For v1 we use **classical ray
-//! attacks** for sliders — simpler and correct; magic bitboards can be
-//! dropped in later without touching `movegen.rs`.
-//!
-//! Table layout:
 //! - `PAWN_ATTACKS[color][sq]` — diagonal attacks (not pushes).
 //! - `KNIGHT_ATTACKS[sq]`, `KING_ATTACKS[sq]`.
 //! - `RAY_ATTACKS[dir][sq]` — empty-board ray in one of 8 directions.
-//! - `BETWEEN[a][b]` — squares strictly between `a` and `b` if they lie on a
-//!   common rank/file/diagonal; `0` otherwise. Used for blocking a check.
-//! - `LINE[a][b]` — full rank/file/diagonal containing both squares; `0`
-//!   otherwise. Used for pin rays.
+//! - `BETWEEN[a][b]` — squares strictly between `a` and `b` on a shared
+//!   rank/file/diagonal (else 0). Used to block a check.
+//! - `LINE[a][b]` — full rank/file/diagonal containing both (else 0).
+//!   Used for pin rays.
+//!
+//! Sliders route through `magic.rs` on the hot path; the classical-ray
+//! helpers below are kept as the correctness oracle.
 
 use crate::bitboard::{self, Bitboard};
 use crate::types::Color;
@@ -44,9 +41,7 @@ const fn compute_pawn_attacks() -> [[Bitboard; 64]; 2] {
     let mut sq = 0;
     while sq < 64 {
         let bb: Bitboard = 1u64 << sq;
-        // White pawn attacks: NE + NW
         table[0][sq] = bitboard::north_east(bb) | bitboard::north_west(bb);
-        // Black pawn attacks: SE + SW
         table[1][sq] = bitboard::south_east(bb) | bitboard::south_west(bb);
         sq += 1;
     }
@@ -58,8 +53,7 @@ const fn compute_knight_attacks() -> [Bitboard; 64] {
     let mut sq = 0;
     while sq < 64 {
         let bb: Bitboard = 1u64 << sq;
-        // 8 knight jumps, each masked against both files on the "inside" to
-        // avoid file-wrap.
+        // 8 jumps; each masked against the inside file(s) to prevent wrap.
         let nne = (bb & bitboard::NOT_FILE_H) << 17;
         let nnw = (bb & bitboard::NOT_FILE_A) << 15;
         let ssw = (bb & bitboard::NOT_FILE_A) >> 17;
@@ -210,8 +204,8 @@ pub fn king_attacks(sq: u8) -> Bitboard {
 // ---------------------------------------------------------------------------
 
 const fn squares_between(a: i32, b: i32) -> Bitboard {
-    // Walk from a toward b in any of 8 directions; return squares strictly
-    // between (exclusive of both). 0 if not on a common rank/file/diagonal.
+    // Strictly between, exclusive of both endpoints. 0 if a and b don't
+    // share a rank/file/diagonal.
     if a == b {
         return 0;
     }
@@ -270,7 +264,7 @@ const fn line_through(a: i32, b: i32) -> Bitboard {
     } else {
         return 0;
     }
-    // Find the boundary going in the negative direction, then step forward.
+    // Back up to the board boundary, then sweep forward to fill the line.
     let mut f = fa;
     let mut r = ra;
     while f - step_file >= 0 && f - step_file < 8 && r - step_rank >= 0 && r - step_rank < 8 {
