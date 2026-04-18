@@ -5,15 +5,16 @@ exclude = ["rust/bench", "rust/ladder"]
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.95"
 license = "MIT"
-repository = "https://github.com/yahorbarkouski/ultrachessjs"
+repository = "https://github.com/yahorbarkouski/ultrachess"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_must_use = "deny"
 
 [workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
 needless_return = "allow"
 module_inception = "allow"
 

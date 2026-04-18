@@ -17,8 +17,8 @@
 //!   chess.move("e4");
 //!   ```
 
-import { initSync } from "./loader.js";
 import { decodeWasm } from "./generated/inline-wasm.js";
+import { initSync } from "./loader.js";
 
 // Eager initialisation: by the time any symbol is imported from this
 // module, the WASM instance is ready. `initSync` is idempotent — a second

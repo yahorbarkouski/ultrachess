@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { abiCheck, init, EXPECTED_ABI_VERSION } from "../src/index.js";
+import { abiCheck, EXPECTED_ABI_VERSION, init } from "../src/index.js";
 
 describe("Phase 0: WASM roundtrip", () => {
   it("loads the WASM module without error", async () => {

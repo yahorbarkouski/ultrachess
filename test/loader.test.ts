@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  __resetLoaderForTests,
   AbiVersionMismatchError,
   EXPECTED_ABI_VERSION,
-  __resetLoaderForTests,
   getAbi,
   init,
   initSync,

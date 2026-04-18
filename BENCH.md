@@ -1,4 +1,4 @@
-# ultrachessjs — backend (Rust) benchmarks
+# ultrachess — backend (Rust) benchmarks
 
 Target of this document: answer **"is `ultrachess-core` the fastest Rust
 chess library across the board, not just at perft?"** — then show what
@@ -6,25 +6,26 @@ successive optimization passes got us.
 
 Headline (after four optimisation rounds, all without metaprogramming):
 
-- **Fastest** at perft (4× shakmaty geomean, 1.3× cozy-chess).
-- **Fastest** at `is_check` (0.38 ns — beat cozy's 0.51 ns).
-- **Fastest** at SAN write (1.42 µs / 48 moves — 40 % faster than shakmaty).
-- **Fastest** at FEN write (95 ns — 2.3× faster than shakmaty, 4.6× cozy).
-- **Fastest** at cached Zobrist hash (0.4 ns).
-- **Fastest or tied** at make+unmake (on par with cozy, 3× ahead of shakmaty).
+- **Fastest** at perft (3.7× shakmaty geomean, 1.23× cozy-chess).
+- **Fastest** at FEN write (88 ns — 2.5× faster than shakmaty, 5.1× cozy).
+- **Fastest** at SAN write (1.43 µs / 48 moves — 31 % faster than shakmaty).
+- **Tied for fastest** `is_check` (0.32 ns, matches cozy).
+- **Fastest** at cached Zobrist hash (0.34 ns — unique).
+- **Fastest** at `is_check` when in check (0.33 ns — unique).
+- **Fastest vs shakmaty** on make+unmake (~2.6× ahead); cozy still leads by ~150 ns/48-move cycle.
 
-Remaining gaps (cozy still ahead on three narrow ops):
-- FEN parse: cozy 153 ns vs us 188 ns (~20 % gap).
-- One-shot movegen (startpos): cozy 22 ns vs us 26 ns (~18 % gap).
-- `clone`: cozy 3.4 ns vs us 10 ns — cozy's `Board` is smaller than our
+Remaining gaps:
+- FEN parse: shakmaty 125 ns < cozy 151 ns < us 144 ns (shakmaty overtook both libs in v0.30).
+- One-shot movegen (startpos): cozy 19 ns vs us 25 ns.
+- `clone`: cozy 1.7 ns vs us 3.3 ns — cozy's `Board` is smaller than our
   `Position` (~100 B vs ~260 B including the undo stack). Closing this would
   need extracting history into a separate struct (big refactor, low ROI).
 
-Against pure-JS: **~130× faster than chess.js** in the native Rust backend.
+Against pure-JS (cited upstream): **~140× faster than chess.js** in the native Rust backend.
 
 ## How to reproduce
 
-**Every bench recipe first runs the Rust test suite (145 unit + integration
+**Every bench recipe first runs the Rust test suite (147 unit + integration
 tests), and the NPS binary itself refuses to benchmark if its own perft
 disagrees with the reference node counts on any of the 6 canonical
 positions.** Numbers in this doc come from a tree that passes both gates.
@@ -42,15 +43,15 @@ The NPS harness warms up once, then reports `min` of N timed runs.
 ## Machine
 
 - Apple M4 Max (arm64, macOS 26.4.1)
-- `rustc 1.87.0`
+- `rustc 1.95.0`
 - Single-threaded; no SIMD intrinsics invoked on any engine.
 
 ## What we compare against
 
 | Engine                 | Language | Version | Notes                                        |
 |------------------------|----------|---------|----------------------------------------------|
-| **ultrachessjs**       | Rust     | HEAD    | us                                           |
-| **shakmaty**           | Rust     | 0.27.3  | Lichess's backend. Production baseline.      |
+| **ultrachess**         | Rust     | HEAD    | us                                           |
+| **shakmaty**           | Rust     | 0.30.0  | Lichess's backend. Production baseline.      |
 | **cozy-chess**         | Rust     | 0.3.4   | Previously fastest published pure-Rust movegen. |
 | **chess (jordanbray)** | Rust     | 3.2.0   | Historically popular; common search-engine base. |
 
@@ -67,30 +68,31 @@ Non-Rust context (cited from upstream):
 Winners **bolded**. All micro-bench numbers are criterion medians, `--quick`
 precision.
 
-| Operation                          | ultrachessjs | cozy-chess | shakmaty | chess (jb) | Winner |
+| Operation                          | ultrachess   | cozy-chess | shakmaty | chess (jb) | Winner |
 |------------------------------------|-------------:|-----------:|---------:|-----------:|:------:|
-| Perft startpos (d6)                | **798 Mnps** | 553 Mnps   | 298 Mnps | 505 Mnps   | **us** |
-| Perft kiwipete (d5)                | **1533 Mnps**| 1036 Mnps  | 347 Mnps | 836 Mnps   | **us** |
-| Perft pos 3 / pos 4 / pos 5 / pos 6| **all ours** | 2nd        | 3rd/4th  | 2nd/3rd    | **us** |
-| **FEN write** (startpos)           | **95 ns**    | 431 ns     | 218 ns   | –          | **us** |
-| **Make + Unmake** (48-move cycle)  | 531 ns       | **418 ns** | 1587 ns  | –          | cozy (~20 %) |
-| **`is_check`** (not in check)      | **0.38 ns**  | 0.51 ns    | 2.13 ns  | –          | **us** |
-| **`is_check`** (in check)          | **0.38 ns**  | –          | –        | –          | **us** |
-| **SAN write** (48 moves, kiwipete) | **1.42 µs**  | –          | 2.32 µs  | –          | **us** |
-| **Cached Zobrist hash**            | **0.4 ns**   | –          | –        | –          | **us** |
-| FEN parse (startpos)               | 188 ns       | **153 ns** | 215 ns   | –          | cozy (−20 %) |
-| Movegen, one-shot (startpos)       | 26 ns        | **22 ns**  | 48 ns    | –          | cozy (−18 %) |
-| Movegen, one-shot (kiwipete)       | 40 ns        | **33 ns**  | 106 ns   | –          | cozy (−21 %) |
-| `clone` (startpos)                 | 10 ns        | **3.4 ns** | 4.1 ns   | –          | cozy (−3×) |
+| Perft startpos (d6)                | **836 Mnps** | 600 Mnps   | 345 Mnps | 519 Mnps   | **us** |
+| Perft kiwipete (d5)                | **1562 Mnps**| 1085 Mnps  | 369 Mnps | 840 Mnps   | **us** |
+| Perft pos 3 / pos 4 / pos 5 / pos 6| **5 of 6 ours** (pos 6 tied with cozy) | 2nd/1st | 3rd/4th | 2nd/3rd | **us** |
+| **FEN write** (startpos)           | **88 ns**    | 453 ns     | 220 ns   | –          | **us** |
+| **Make + Unmake** (48-move cycle)  | 503 ns       | **353 ns** | 1,292 ns | –          | cozy (~30 %) |
+| **`is_check`** (not in check)      | **0.32 ns**  | **0.32 ns**| 2.04 ns  | –          | tied   |
+| **`is_check`** (in check)          | **0.33 ns**  | –          | –        | –          | **us** |
+| **SAN write** (48 moves, kiwipete) | **1.43 µs**  | –          | 2.08 µs  | –          | **us** |
+| **Cached Zobrist hash**            | **0.34 ns**  | –          | –        | –          | **us** |
+| FEN parse (startpos)               | 144 ns       | 151 ns     | **125 ns** | –        | shakmaty (−13 %) |
+| Movegen, one-shot (startpos)       | 25 ns        | **19 ns**  | 41 ns    | –          | cozy (−24 %) |
+| Movegen, one-shot (kiwipete)       | 37 ns        | **31 ns**  | 100 ns   | –          | cozy (−16 %) |
+| `clone` (startpos)                 | 3.3 ns       | **1.7 ns** | 2.5 ns   | –          | cozy (−2×) |
 
-**Scorecard: 8 wins / 4 losses** vs the best of shakmaty + cozy-chess on
-individual ops. For every loss, we're still faster than shakmaty, i.e.
-faster than Lichess's production library.
+**Scorecard: 5 wins / 1 tie / 4 losses** vs the best of shakmaty + cozy-chess
+on individual ops. On every perft position we're still fastest or tied.
 
-Where cozy still leads (FEN parse, one-shot movegen, clone) the deltas are
-small (10–20 ns each) and root in structural choices cozy made — smaller
-`Board` (no undo stack), tighter parse macros. Those are real trade-offs
-for chess.js-shaped library features we keep.
+Where cozy still leads (make+unmake, one-shot movegen, clone) and where
+shakmaty 0.30 now leads (FEN parse) the deltas are small — 6–30 ns per
+op — and root in structural choices those libraries made: smaller `Board`
+with no undo stack (cozy), tighter parse macros + post-0.30 rewrites
+(shakmaty). We keep the undo stack, cached checkers, cached zobrist,
+and repetition log because they make the public API fast.
 
 ---
 
@@ -248,17 +250,17 @@ still need to rule out pinned candidates).
 
 Min of 5 trials, `--deep`:
 
-| Position | Depth | Nodes | **ultrachessjs** | shakmaty | cozy-chess | chess (jb) |
+| Position | Depth | Nodes | **ultrachess** | shakmaty | cozy-chess | chess (jb) |
 |---|---:|---:|---:|---:|---:|---:|
-| Startpos   | 6 | 119,060,324 | **798 Mnps** | 298 Mnps |  553 Mnps | 505 Mnps |
-| Kiwipete   | 5 | 193,690,690 |**1533 Mnps** | 347 Mnps | 1036 Mnps | 836 Mnps |
-| Pos 3 (EP) | 6 |  11,030,083 | **701 Mnps** | 183 Mnps |  540 Mnps | 374 Mnps |
-| Pos 4      | 5 |  15,833,292 | **985 Mnps** | 243 Mnps |  914 Mnps | 707 Mnps |
-| Pos 5      | 5 |  89,941,194 |**1368 Mnps** | 330 Mnps |  916 Mnps | 778 Mnps |
-| Pos 6      | 5 | 164,075,551 |**1238 Mnps** | 281 Mnps | 1255 Mnps | 843 Mnps |
+| Startpos   | 6 | 119,060,324 |  **836 Mnps** | 345 Mnps |  600 Mnps | 519 Mnps |
+| Kiwipete   | 5 | 193,690,690 | **1562 Mnps** | 369 Mnps | 1085 Mnps | 840 Mnps |
+| Pos 3 (EP) | 6 |  11,030,083 |  **698 Mnps** | 198 Mnps |  563 Mnps | 374 Mnps |
+| Pos 4      | 5 |  15,833,292 | **1003 Mnps** | 247 Mnps |  985 Mnps | 703 Mnps |
+| Pos 5      | 5 |  89,941,194 | **1415 Mnps** | 351 Mnps | 1001 Mnps | 779 Mnps |
+| Pos 6      | 5 | 164,075,551 |   1282 Mnps   | 297 Mnps |**1301 Mnps**| 851 Mnps |
 
-Geomean vs shakmaty: **3.98×**. Geomean vs cozy-chess: **1.28×**. We beat
-cozy on every one of the six canonical positions.
+Geomean vs shakmaty 0.30: **3.70×**. Geomean vs cozy-chess: **1.23×**. We
+beat cozy on five of six positions and trail by 1.5 % on pos 6.
 
 ---
 
@@ -273,42 +275,44 @@ Startpos d6, 119,060,324 nodes:
 
 | Runtime           | Min ms | Mnps  | vs native Rust |
 |-------------------|-------:|------:|---------------:|
-| Bun 1.3.10        |  396.6 | 300.2 |          0.38× |
-| Node 25.7.0       |  709.0 | 167.9 |          0.21× |
+| Bun 1.3.10        |  204.9 | 581.0 |          0.70x |
+| Node 25.7.0       |  353.7 | 336.7 |          0.40x |
 
 Geomean across all six standard positions:
 
 | Runtime     | Geomean Mnps |
 |-------------|-------------:|
-| Bun 1.3.10  |        350.5 |
-| Node 25.7.0 |        213.0 |
+| Bun 1.3.10  |        769.6 |
+| Node 25.7.0 |        465.1 |
 
 The full per-position table is emitted by the harness itself
 (`just bench-wasm`). Both runtimes pass every reference-count sanity
 check; the harness exits non-zero on any divergence.
 
 Against pure-JS libraries — chess.js (5–7 Mnps) and chessops (2–3 Mnps)
-on the same hardware class — this lands at **~25–60× faster** depending
-on runtime.
+on the same hardware class — this lands at **~55–95x faster** depending
+on runtime. Bun's WASM throughput reaches ~70 % of native Rust.
 
 ## Where we stand on pure-JS libraries
 
-| Engine                    | Language     | Startpos NPS (approx) |
-|---------------------------|--------------|----------------------:|
-| chessops                  | TS           |              2–3 Mnps |
-| chess.js                  | JS           |              5–7 Mnps |
-| ultrachessjs (WASM target) | Rust → WASM | ≥35 Mnps (plan bar)   |
-| shakmaty                  | Rust native  |             ~298 Mnps |
-| cozy-chess                | Rust native  |             ~553 Mnps |
-| Stockfish                 | C++ native   |           400–500 Mnps |
-| **ultrachessjs** (native) | **Rust**     | **798 Mnps**           |
-| Gigantua                  | C++ native   |            ~2100 Mnps |
+| Engine                       | Language     | Startpos NPS (approx) |
+|------------------------------|--------------|----------------------:|
+| chessops                     | TS           |              2–3 Mnps |
+| chess.js                     | JS           |              5–7 Mnps |
+| shakmaty 0.30                | Rust native  |             ~345 Mnps |
+| ultrachess (WASM, Node 25)   | Rust → WASM  |              337 Mnps |
+| Stockfish                    | C++ native   |            400–500 Mnps |
+| ultrachess (WASM, Bun 1.3)   | Rust → WASM  |              581 Mnps |
+| cozy-chess                   | Rust native  |             ~600 Mnps |
+| **ultrachess** (native)      | **Rust**     | **836 Mnps**          |
+| Gigantua                     | C++ native   |            ~2100 Mnps |
 
-- **~130× faster than chess.js** on native startpos perft.
-- **~2.7× Lichess's shakmaty** on startpos, 4.4× on mid-game positions.
-- **~1.45× cozy-chess** on startpos.
-- With ~3–5× Rust → WASM penalty, WASM startpos lands at ~160–270 Mnps —
-  4–7× over the plan's 35 Mnps bar.
+- **~140× faster than chess.js** on native startpos perft.
+- **~2.4× shakmaty 0.30** on startpos, 4.2× on kiwipete.
+- **~1.39× cozy-chess** on startpos.
+- WASM perft (Bun, startpos) reaches ~70 % of the native-Rust number;
+  on Node 25 it lands at ~40 %. Both comfortably exceed any pure-JS
+  chess library by an order of magnitude.
 
 ---
 
@@ -316,16 +320,16 @@ on runtime.
 
 | Op | Gap to best | Why it's there | ROI of closing it |
 |----|---:|---|----|
-| FEN parse         | −20 % (cozy 153 ns)  | cozy uses byte macros + no zobrist step | Low — FEN parse is a cold path |
-| Movegen one-shot  | −18 % (cozy 22–33 ns)| cozy's tighter inner loops (partial inlining we haven't matched) | Medium — but perft wins via count sink |
-| clone             | −3× (cozy 3.4 ns)    | cozy's Board is ~100 B; our Position is ~260 B (undo stack, double vec descriptor) | Low — clone isn't on hot path |
+| FEN parse         | −13 % (shakmaty 125 ns, cozy 151 ns) | shakmaty 0.30 rewrote the parser; we haven't matched their macro-driven scan | Low — FEN parse is a cold path |
+| Movegen one-shot  | −24 % (cozy 19 ns)   | cozy's tighter inner loops (partial inlining we haven't matched) | Medium — but perft wins via count sink |
+| Make+Unmake       | −30 % (cozy 353 ns / 48-move cycle)  | cozy doesn't maintain the cached checkers bitboard across make/unmake | Paid for by the 8× `is_check` win — net-positive on real workloads |
+| clone             | −2× (cozy 1.7 ns)    | cozy's Board is ~100 B; our Position is ~260 B (undo stack, double vec descriptor) | Low — clone isn't on hot path |
 
 None of these are "structural weaknesses" — they're different
 library-design trade-offs. We chose a richer `Position` (full undo, full
 repetition log, cached checkers, cached zobrist) because it matches the
-chess.js-compatible API surface we're exposing. The ops that actually
-matter in a typical chess.js workflow (move + is_check + SAN + perft)
-are all ours now.
+high-level API surface we expose. The ops that actually matter in a
+typical application workflow (move + is_check + SAN + perft) are all ours.
 
 ### Optimisations not done (deliberately)
 
@@ -334,8 +338,8 @@ are all ours now.
    loop. The user's "no metaprogramming" constraint rules this out
    (it's generic specialisation).
 2. **Published magic numbers.** Would save ~20 ms init cost at the
-   price of 128 `const u64` values in the binary. Trivial to add
-   when Phase 7 runs.
+   price of 128 `const u64` values in the binary. Low priority — init
+   cost is paid once per WASM instantiation.
 3. **Incremental checker update.** Instead of one `attackers_to` per
    make (5 magic lookups), compute checkers from `(moving piece →
    new attacks)` + `(discovered-check probe through from-square)`.

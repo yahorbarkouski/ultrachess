@@ -39,9 +39,7 @@ describe("Chess — verboseMove + moves(verbose)", () => {
     using chess = await Chess.create(
       "rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3",
     );
-    const ep = chess.legalMoves().find(
-      (m) => chess.verboseMove(m).kind === MoveKind.EnPassant,
-    )!;
+    const ep = chess.legalMoves().find((m) => chess.verboseMove(m).kind === MoveKind.EnPassant)!;
     const v = chess.verboseMove(ep);
     expect(v.from).toBe("e5");
     expect(v.to).toBe("d6");

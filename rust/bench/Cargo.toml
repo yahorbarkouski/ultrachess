@@ -2,7 +2,7 @@
 name = "ultrachess-bench"
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.95"
 license = "MIT"
 publish = false
 description = "Benchmarks comparing ultrachess-core vs shakmaty / cozy-chess / chess."
@@ -12,7 +12,7 @@ ultrachess-core = { path = "../core" }
 
 # Lichess's chess backend (Rust port of scalachess). Widely deployed, well
 # optimised, uses bitboards + magic lookups. THE reference we measure against.
-shakmaty = "0.27"
+shakmaty = "0.30"
 
 # Cozy-chess: explicitly tuned for perft / search inner loops; one of the
 # fastest pure-Rust movegens published. Uses incremental legality + magic BBs.
@@ -22,7 +22,7 @@ cozy-chess = "0.3"
 # of comparison.
 chess = "3.2"
 
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [profile.release]
 opt-level = 3

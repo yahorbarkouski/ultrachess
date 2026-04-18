@@ -39,7 +39,11 @@ pub fn move_to_san(pos: &mut Position, m: Move) -> String {
     debug_assert_move_is_legal(pos, m);
 
     if m.kind() == MoveKind::Castle {
-        let base = if m.to().file() > m.from().file() { "O-O" } else { "O-O-O" };
+        let base = if m.to().file() > m.from().file() {
+            "O-O"
+        } else {
+            "O-O-O"
+        };
         let mut s = String::with_capacity(6);
         s.push_str(base);
         append_check_suffix(pos, m, &mut s);
@@ -160,11 +164,15 @@ fn piece_letter(pt: PieceType) -> char {
 }
 
 fn debug_assert_move_is_legal(pos: &Position, m: Move) {
-    debug_assert!({
-        let mut ml = MoveList::new();
-        generate_legal_moves(pos, &mut ml);
-        ml.iter().any(|x| x.0 == m.0)
-    }, "move_to_san called with illegal move {:?}", m);
+    debug_assert!(
+        {
+            let mut ml = MoveList::new();
+            generate_legal_moves(pos, &mut ml);
+            ml.iter().any(|x| x.0 == m.0)
+        },
+        "move_to_san called with illegal move {:?}",
+        m
+    );
 }
 
 // --------------------------------------------------------------------------
@@ -253,11 +261,26 @@ fn parse_san_intent(s: &str) -> Option<SanIntent> {
     let mut i = 0usize;
     let mut piece = PieceType::Pawn;
     match bytes[i] {
-        b'N' => { piece = PieceType::Knight; i += 1; }
-        b'B' => { piece = PieceType::Bishop; i += 1; }
-        b'R' => { piece = PieceType::Rook; i += 1; }
-        b'Q' => { piece = PieceType::Queen; i += 1; }
-        b'K' => { piece = PieceType::King; i += 1; }
+        b'N' => {
+            piece = PieceType::Knight;
+            i += 1;
+        }
+        b'B' => {
+            piece = PieceType::Bishop;
+            i += 1;
+        }
+        b'R' => {
+            piece = PieceType::Rook;
+            i += 1;
+        }
+        b'Q' => {
+            piece = PieceType::Queen;
+            i += 1;
+        }
+        b'K' => {
+            piece = PieceType::King;
+            i += 1;
+        }
         _ => {}
     }
 
@@ -321,10 +344,14 @@ fn parse_san_intent(s: &str) -> Option<SanIntent> {
     let mid = &bytes[i..mid_end];
     for &b in mid {
         if (b'a'..=b'h').contains(&b) {
-            if disambig_file.is_some() { return None; }
+            if disambig_file.is_some() {
+                return None;
+            }
             disambig_file = Some(b - b'a');
         } else if (b'1'..=b'8').contains(&b) {
-            if disambig_rank.is_some() { return None; }
+            if disambig_rank.is_some() {
+                return None;
+            }
             disambig_rank = Some(b - b'1');
         } else if b == b'x' || b == b'-' {
             continue;
@@ -356,18 +383,28 @@ fn match_intent(pos: &Position, intent: &SanIntent) -> Option<Move> {
             continue;
         }
         if let Some(f) = intent.disambig_file {
-            if m.from().file() != f { continue; }
+            if m.from().file() != f {
+                continue;
+            }
         }
         if let Some(r) = intent.disambig_rank {
-            if m.from().rank() != r { continue; }
+            if m.from().rank() != r {
+                continue;
+            }
         }
         match intent.promotion {
             Some(pp) => {
-                if m.kind() != MoveKind::Promotion { continue; }
-                if m.promotion_piece() != pp { continue; }
+                if m.kind() != MoveKind::Promotion {
+                    continue;
+                }
+                if m.promotion_piece() != pp {
+                    continue;
+                }
             }
             None => {
-                if m.kind() == MoveKind::Promotion { continue; }
+                if m.kind() == MoveKind::Promotion {
+                    continue;
+                }
             }
         }
         // intent.capture is an optional hint — not enforced strictly, since
@@ -411,7 +448,9 @@ fn find_castle(pos: &Position, kingside: bool) -> Result<Move, SanError> {
 
 fn parse_uci_style(pos: &Position, s: &str) -> Option<Move> {
     let bytes = s.as_bytes();
-    if bytes.len() != 4 && bytes.len() != 5 { return None; }
+    if bytes.len() != 4 && bytes.len() != 5 {
+        return None;
+    }
     let from = Square::parse_ascii(&bytes[..2])?;
     let to = Square::parse_ascii(&bytes[2..4])?;
     let promo = if bytes.len() == 5 {
@@ -451,9 +490,17 @@ mod tests {
         let mut p = Position::startpos();
         let mut ml = MoveList::new();
         generate_legal_moves(&p, &mut ml);
-        let e4 = ml.iter().find(|m| m.from() == Square::E2 && m.to() == Square::E4).unwrap();
+        let e4 = ml
+            .iter()
+            .find(|m| m.from() == Square::E2 && m.to() == Square::E4)
+            .unwrap();
         assert_eq!(move_to_san(&mut p, *e4), "e4");
-        let nf3 = ml.iter().find(|m| m.from() == Square::from_file_rank(6, 0) && m.to() == Square::from_file_rank(5, 2)).unwrap();
+        let nf3 = ml
+            .iter()
+            .find(|m| {
+                m.from() == Square::from_file_rank(6, 0) && m.to() == Square::from_file_rank(5, 2)
+            })
+            .unwrap();
         assert_eq!(move_to_san(&mut p, *nf3), "Nf3");
     }
 
@@ -465,7 +512,10 @@ mod tests {
         let mut ml = MoveList::new();
         generate_legal_moves(&p, &mut ml);
         // Black could play a6 attacking the bishop — find that move.
-        let a6 = ml.iter().find(|m| m.from() == Square::A7 && m.to() == Square::from_file_rank(0, 5)).unwrap();
+        let a6 = ml
+            .iter()
+            .find(|m| m.from() == Square::A7 && m.to() == Square::from_file_rank(0, 5))
+            .unwrap();
         assert_eq!(move_to_san(&mut p, *a6), "a6");
     }
 
@@ -477,8 +527,14 @@ mod tests {
         let mut p = parse_fen(fen).unwrap();
         let mut ml = MoveList::new();
         generate_legal_moves(&p, &mut ml);
-        let nb1_d2 = ml.iter().find(|m| m.from() == Square(1) && m.to() == Square::D2).unwrap(); // b1→d2
-        let nf3_d2 = ml.iter().find(|m| m.from() == Square::from_file_rank(5,2) && m.to() == Square::D2).unwrap();
+        let nb1_d2 = ml
+            .iter()
+            .find(|m| m.from() == Square(1) && m.to() == Square::D2)
+            .unwrap(); // b1→d2
+        let nf3_d2 = ml
+            .iter()
+            .find(|m| m.from() == Square::from_file_rank(5, 2) && m.to() == Square::D2)
+            .unwrap();
         assert_eq!(move_to_san(&mut p, *nb1_d2), "Nbd2");
         assert_eq!(move_to_san(&mut p, *nf3_d2), "Nfd2");
     }
@@ -487,8 +543,6 @@ mod tests {
     fn disambiguation_by_rank() {
         // Two white rooks on the same file (h1, h8) both able to reach h5.
         // Black king on a8 so the rooks don't give check after moving.
-        let fen = "k7/8/8/8/8/8/8/4K2R w - - 0 1";
-        // Correction: we need TWO rooks on file h. Let me keep h1 and h8.
         let fen = "k6R/8/8/8/8/8/8/4K2R w - - 0 1";
         let mut p = parse_fen(fen).unwrap();
         let mut ml = MoveList::new();
@@ -510,8 +564,14 @@ mod tests {
         let mut p = parse_fen(fen).unwrap();
         let mut ml = MoveList::new();
         generate_legal_moves(&p, &mut ml);
-        let ks = ml.iter().find(|m| m.kind() == MoveKind::Castle && m.to() == Square::G1).unwrap();
-        let qs = ml.iter().find(|m| m.kind() == MoveKind::Castle && m.to() == Square::C1).unwrap();
+        let ks = ml
+            .iter()
+            .find(|m| m.kind() == MoveKind::Castle && m.to() == Square::G1)
+            .unwrap();
+        let qs = ml
+            .iter()
+            .find(|m| m.kind() == MoveKind::Castle && m.to() == Square::C1)
+            .unwrap();
         assert_eq!(move_to_san(&mut p, *ks), "O-O");
         assert_eq!(move_to_san(&mut p, *qs), "O-O-O");
     }
@@ -526,7 +586,11 @@ mod tests {
         generate_legal_moves(&p, &mut ml);
         let promo_q = ml
             .iter()
-            .find(|m| m.kind() == MoveKind::Promotion && m.to() == Square::A8 && m.promotion_piece() == PieceType::Queen)
+            .find(|m| {
+                m.kind() == MoveKind::Promotion
+                    && m.to() == Square::A8
+                    && m.promotion_piece() == PieceType::Queen
+            })
             .unwrap();
         assert_eq!(move_to_san(&mut p, *promo_q), "a8=Q");
     }
@@ -539,12 +603,15 @@ mod tests {
         let mut ml = MoveList::new();
         generate_legal_moves(&p, &mut ml);
         // White plays Qh5.
-        let qh5 = ml.iter().find(|m| m.from() == Square::D1 && m.to() == Square::from_file_rank(7, 4)).unwrap();
+        let qh5 = ml
+            .iter()
+            .find(|m| m.from() == Square::D1 && m.to() == Square::from_file_rank(7, 4))
+            .unwrap();
         assert_eq!(move_to_san(&mut p, *qh5), "Qh5");
 
         // Mate position: Qxf7#.
         let fen_mate = "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3";
-        let mut p2 = parse_fen(fen_mate).unwrap();
+        let p2 = parse_fen(fen_mate).unwrap();
         // Continue until we have white to deliver Qxf7#. Actually FEN already has it black to move.
         // Let me find a real check: after 3. ... Nf6??, 4. Qxf7# is mate.
         let fen_mate = "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4";
@@ -571,7 +638,10 @@ mod tests {
     fn parse_san_and_uci() {
         let p = Position::startpos();
         assert_eq!(san_to_move(&p, "e4").unwrap().to(), Square::E4);
-        assert_eq!(san_to_move(&p, "Nf3").unwrap().to(), Square::from_file_rank(5, 2));
+        assert_eq!(
+            san_to_move(&p, "Nf3").unwrap().to(),
+            Square::from_file_rank(5, 2)
+        );
         // UCI fallback.
         assert_eq!(san_to_move(&p, "e2e4").unwrap().to(), Square::E4);
     }
@@ -597,8 +667,7 @@ mod tests {
         let mut p2 = p.clone();
         for m in ml.iter() {
             let san = move_to_san(&mut p2, *m);
-            let reparsed = san_to_move(&p, &san)
-                .unwrap_or_else(|e| panic!("{san} → {e:?}"));
+            let reparsed = san_to_move(&p, &san).unwrap_or_else(|e| panic!("{san} → {e:?}"));
             assert_eq!(reparsed.0, m.0, "roundtrip failed for {san}");
         }
     }
@@ -654,7 +723,10 @@ mod tests {
     fn castle_not_legal_in_position_errors() {
         // No castling rights → "O-O" reports NoLegalMove.
         let p = parse_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1").unwrap();
-        assert!(matches!(san_to_move(&p, "O-O"), Err(SanError::NoLegalMove(_))));
+        assert!(matches!(
+            san_to_move(&p, "O-O"),
+            Err(SanError::NoLegalMove(_))
+        ));
     }
 
     #[test]

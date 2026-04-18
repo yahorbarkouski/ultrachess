@@ -10,7 +10,7 @@ pub mod engines {
     pub mod ours {
         use ultrachess_core::{fen::parse_fen, perft::perft as uc_perft, position::Position};
 
-        pub const NAME: &str = "ultrachessjs";
+        pub const NAME: &str = "ultrachess";
 
         pub fn parse(fen: &str) -> Position {
             parse_fen(fen).expect("valid fen")
@@ -50,7 +50,8 @@ pub mod engines {
             let mut n = 0u64;
             for m in &moves {
                 let mut child = pos.clone();
-                child.play_unchecked(m);
+                // shakmaty ≥0.30 takes Move by value.
+                child.play_unchecked(m.clone());
                 n += perft(&child, depth - 1);
             }
             n

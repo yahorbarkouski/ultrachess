@@ -54,6 +54,24 @@ test-ts: build-wasm
 # Everything.
 test: test-rust test-ts
 
+# --- Differential fuzz vs chess.js -----------------------------------------
+#
+# Plays random legal games on both engines in lock-step, asserting FEN /
+# legal-move set / check-flags / draw-flags agree every ply. The default
+# tier runs via `just test-ts` (it's a normal vitest file); these recipes
+# expose the heavier gated tiers.
+#
+# Conventions (see TESTING.md):
+#  - PR gate:     default tier (200 games) — part of `just test`.
+#  - Nightly:     `just test-diff-10k`     — ~5 min.
+#  - Pre-RC:      `just test-diff-100k`    — ~55 min, the release gate.
+
+test-diff-10k: build-wasm build-inline
+    DIFF_FUZZ_GAMES=10000 npx vitest run test/differential
+
+test-diff-100k: build-wasm build-inline
+    DIFF_FUZZ_GAMES=100000 npx vitest run test/differential
+
 # --- Coverage --------------------------------------------------------------
 #
 # Conventions (see TESTING.md): ≥95% lines / functions / statements;
@@ -121,6 +139,29 @@ bench-wasm:
 
 # Everything: gate + NPS + micro + WASM.
 bench: bench-gate bench-nps bench-micro bench-wasm
+
+# --- Format + lint ---------------------------------------------------------
+#
+# Enforced in CI as a gate before tests. `just fmt` rewrites, `just fmt-check`
+# is non-destructive.
+
+# Rustfmt (writes) + Biome format (writes) across the whole repo.
+fmt:
+    cargo fmt --all
+    npx biome format --write .
+
+# Non-destructive format check — exits non-zero if anything would change.
+fmt-check:
+    cargo fmt --all --check
+    npx biome format .
+
+# Lint Rust (clippy, warnings = errors) + TS (Biome).
+lint:
+    cargo clippy --all-targets --workspace -- -D warnings
+    npx biome lint .
+
+# Full gate: format check + lint across both languages.
+check: fmt-check lint
 
 # --- Misc -------------------------------------------------------------------
 

@@ -4,14 +4,14 @@ import { describe, expect, it } from "vitest";
 import {
   AbiVersionMismatchError,
   EXPECTED_ABI_VERSION,
+  getAbi,
   init,
   initSync,
-  getAbi,
   readStringFromMemory,
   readStringScratch,
   readU64,
-  writeStringToScratch,
   type UltrachessAbi,
+  writeStringToScratch,
 } from "../src/low-level.js";
 
 describe("low-level — re-exports", () => {

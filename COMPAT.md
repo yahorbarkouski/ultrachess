@@ -1,89 +1,94 @@
-# Compatibility notes
+# Migrating from chess.js
 
-ultrachessjs is **API-inspired** by [chess.js](https://github.com/jhlywa/chess.js)
-— it aims at full *feature* parity, but the public surface is redesigned around
-the WASM-first architecture. This document is the living reference for places
-where we deliberately diverge from chess.js, and known rough edges to watch
-during the phase 8 differential-fuzz run.
+This document is the reference for engineers porting a chess.js codebase to `ultrachess`. Every row is a behavior that changes or a guarantee we keep; every claim is backed by a specific file in this repository.
 
-## Deliberate API differences
+Nothing here is a judgement of chess.js. Where we compare behavior, we describe **our** behavior precisely and leave the chess.js side to its own documentation.
 
-| chess.js                 | ultrachessjs                                      | Why |
-|--------------------------|---------------------------------------------------|-----|
-| `new Chess(fen)` (sync)  | `await Chess.create(fen)` / `Chess.createSync()` | WASM must be instantiated first. The `inline` entry makes sync construction trivial. |
-| `chess.move('e4')`       | same                                              | — |
-| `chess.move({ from, to })` | `chess.move(chess.parseSan(...))` or construct a `Move` via helpers | We expose packed `Move` (u16) as the canonical form; verbose objects are derived on demand. |
-| `chess.moves({ verbose: true })` emits `Move` objects as first-class | same, but with a narrower and more precisely typed `VerboseMove` | Discriminated-ish flags field replaced by a typed `kind: MoveKind` + explicit `captured`/`promotion`. |
-| `chess.ascii()` returns a boxed grid with borders | plain 8-line grid (rank 8 first, `.` for empty) | Easier to diff in snapshot tests and align with standard FEN presentation. |
-| `chess.history({ verbose: true })` returns full SAN + before/after FEN | returns `VerboseMove[]` (derived by walking history) | `before`/`after` FEN are computable from the Chess instance; omitted by default to avoid per-move FEN work. |
-| `chess.pgn()` supports header order control | 7-tag-roster emitted first, remaining headers in insertion order | Matches PGN §8.1 (seven-tag-roster). |
-| `chess.put({ type, color }, sq)` | `chess.put({ color, type }, sq)` | Field order is documentation-only; both orders are valid TS object literals. The important difference: `put` **throws** on invalid piece rather than returning `false`. |
-| `chess.remove(sq)` returns `false` when empty | returns `null` when empty | `Piece \| null` is the typed return. |
-| `chess.isGameOver()` incl. draw rules | same behaviour | — |
-| `chess.board()` (8×8 array) | not yet exposed | Planned for phase 6 follow-up if users need it; `pieceAt` + iteration is the current path. |
+## API differences
 
-## Semantic equivalences (must not diverge)
+| chess.js                                     | ultrachess                                                               | Reason                                                                                           |
+|----------------------------------------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| `new Chess(fen?)` (synchronous)              | `await Chess.create(fen?)` / `Chess.createSync(fen?)` (inline entry)     | WebAssembly must be instantiated before any position exists. The `ultrachess/inline` entry embeds the `.wasm` as base64 and exposes a purely-synchronous path. |
+| `chess.move('e4')`                           | `chess.move('e4')`                                                       | Identical SAN acceptance path.                                                                   |
+| `chess.move({ from, to, promotion })`        | not supported — build a `Move` via `parseSan(...)` or the packed helpers | `Move` is a branded packed `u16` (`moveFrom`, `moveTo`, `moveKind`, `movePromotion`). Object-form `{from, to}` would require an extra legality search per call. |
+| `moves({ verbose: true })` → flag-string + 9 fields | same call, `VerboseMove[]` with `kind: MoveKind` + explicit `captured?` / `promotion?` / `uci` | Discriminated, typed enum beats string flags for TS consumers. Every field is populated from the packed `Move` on demand, not stored. |
+| `chess.ascii()` → boxed grid with borders    | 8 lines × 8 chars, rank 8 first, `.` for empty, no separators            | Round-trips through snapshot tests; trivially diffable. See `rust/core/src/position.rs:748`.     |
+| `history({ verbose: true })` includes `before` / `after` FEN | `VerboseMove[]` only; no embedded FEN                        | `before` / `after` are derivable by walking `history()` or by cloning and replaying. Emitting them by default would run FEN serialization per move (95 ns native but a full boundary crossing in WASM). |
+| `chess.pgn({ newline, maxWidth })`           | `chess.pgn()` — seven-tag roster first, remaining headers in insertion order, 80-column wrap | PGN §8.1 (STR: seven-tag roster) and §8.2.6 (80-column wrap). Wrapping is not configurable today. See `src/chess.ts:593`. |
+| `chess.put({ type, color }, sq)` → `boolean` | `chess.put({ color, type }, sq)` → `Piece \| null`; **throws** on invalid | Field order in a TS object literal is irrelevant. The important change: we return the replaced piece (or `null`) and throw `RangeError` on an unplaceable piece. See `src/chess.ts:371`. |
+| `chess.remove(sq)` → `Piece \| false`        | `chess.remove(sq)` → `Piece \| null`                                     | `Piece \| null` is the typed return. `false` cannot carry a piece, so the union was inconsistent. |
+| `chess.board()` → 8×8 array                  | not exposed                                                              | Today: iterate `pieceAt(0)` … `pieceAt(63)`. If you need the array form for a renderer, open an issue. |
+| `chess.validate_fen(fen)` (static)           | not exposed                                                              | `Chess.create(fen)` throws `InvalidFenError` on bad input; catch to validate. |
+| error returns (`null` / `false`)             | typed exceptions (`IllegalMoveError`, `InvalidFenError`, `InvalidPgnError`, `DisposedError`, `AbiVersionMismatchError`) | Exceptions carry call-site context; return-sentinels do not. |
 
-These are hard gates for phase 8's differential fuzz:
+## Behavior we keep aligned
 
-- Set of legal moves at every reachable position.
-- FEN string after each move (including halfmove / fullmove clocks).
-- `isCheck()`, `isCheckmate()`, `isStalemate()` classification at every ply.
-- `isDraw()` = insufficient material OR 50-move OR threefold OR stalemate.
-- SAN disambiguation: chess.js emits minimum-distinguishing prefix (file, then
-  rank, then full square). We match that.
-- Castling rights update when king or corner-rook moves/captures.
-- En-passant discovered-check rejection (the `8/...KPp4r.../...k.../` class
-  of positions).
+Reachable chess positions should produce the same primary classifications under both libraries. We enforce this on our side via:
 
-## Known differences (documented — not bugs)
+- Perft matches reference node counts at every standard position (`rust/core/tests/perft.rs`).
+- Hash / make-unmake / FEN / SAN round-trip identity over thousands of random games (`rust/core/tests/` property suite).
 
-### 1. `Chess.put` enforces the one-king invariant strictly
+What "aligned" covers:
 
-chess.js permits transient states with two kings of the same colour during
-position editing; we reject. Rationale: every other operation assumes the
-invariant holds, and silent violation would miscompute `king_sq` during move
-generation.
+- The set of legal moves at every reachable position.
+- The FEN string after each move, including halfmove and fullmove clocks.
+- `inCheck()`, `isCheckmate()`, `isStalemate()` classification at every ply.
+- `isDraw()` = insufficient material OR 50-move rule OR threefold repetition OR stalemate (`rust/core/src/position.rs:698`).
+- SAN disambiguation: emits the minimum prefix that resolves (file, then rank, then full square). See `rust/core/src/san.rs`.
+- Castling rights update when the king or a corner-rook moves or is captured (`castling_clear_table` in `rust/core/src/position.rs:764`).
+- En-passant rejection when the capture would expose the moving side's king to a horizontal discovered check (the `"8/…KPp…/…k…"` class).
 
-### 2. `Chess.loadPgn` replay is strict
+## Behaviors that are explicitly ours
 
-We require every SAN in the mainline to be legal at its position. chess.js's
-permissive parser accepts some over-disambiguated or garbage forms; our
-parser is slightly stricter. If you hit a real-world PGN we reject, file it
-— it's interesting.
+### 1. `put` enforces the one-king invariant
 
-### 3. `history()` is the moves played through this instance, not the whole
-game encoded by a loaded PGN
+Placing a king when one of the same color already sits on a different square returns an invalid-args code from the ABI (`rust/wasm/src/lib.rs:312`), which the TS shim turns into a `RangeError`. This is not a validator pass applied after the fact — every move-generation, attack-query, and serialization path in the core assumes exactly one king per side. A second king would silently miscompute `king_sq`.
 
-`Chess.loadPgn` replays the PGN through `move()`, so the mainline ends up in
-`history()` — matching the chess.js behaviour. If you `Chess.create` then
-`put`/`remove`, history is cleared (editing invalidates undo).
+Workaround: if you need to swap a king's square, `remove` the old square first, then `put` on the new one.
 
-### 4. `Chess.hash()` is a **stable** Zobrist key
+### 2. `Chess.loadPgn` replays strictly
 
-The 793 random keys are deterministically seeded from a constant (SplitMix64
-from `0xC3A5_C85C_97CB_3127`). If this seed ever changes, downstream
-transposition tables break. Treat the seed as a public contract.
+Every SAN in the mainline is fed through `move()` and must be legal at the reached position. The first rejection throws `InvalidPgnError` with the offending ply index and SAN (`src/chess.ts:217`). Over-disambiguated SAN (e.g., `Nbd2` when `Nd2` is unambiguous) is accepted by the SAN parser so long as the constraint is consistent; nonsense tokens are not.
 
-### 5. Threefold repetition scope
+If a real-world PGN that you believe is well-formed is rejected, please file an issue with the exact PGN.
 
-We track repetition *since the last irreversible move* (FIDE 9.2 / 9.3).
-Two positions that appear identical but straddle an irreversible move
-(capture, pawn push, castling, castling-right change) do **not** count as
-repetitions. chess.js does the same.
+### 3. `history()` is what was played through this instance
 
-## Runtime support
+`Chess.loadPgn` replays the parsed mainline through `move()`, so the PGN's moves end up in `history()`. A fresh `Chess.create()` followed by `put` / `remove` clears the history (`src/chess.ts:383`) — editing invalidates undo, because the pre-edit state is no longer reachable.
 
-| Runtime            | Default entry | `/inline` entry |
-|--------------------|---------------|-----------------|
-| Node ≥ 18          | ✅ (via `fs`) | ✅               |
-| Node < 18          | ❌            | ❌ (needs `atob`) |
-| Bun ≥ 1.2          | ✅            | ✅               |
-| Deno ≥ 1.40        | ✅            | ✅               |
-| Chromium / Firefox / Safari (evergreen) | ✅ | ✅ (>4 KB sync compile emits a dev-tools warning but works) |
-| Cloudflare Workers | ✅ (bundler must emit the WASM alongside) | ✅ (zero-fetch) |
-| Vercel Edge        | ✅            | ✅               |
+### 4. `clone()` copies TS-side state
 
-Strict CSP environments that set `script-src 'self'` without
-`wasm-unsafe-eval`: neither entry will work. Ship the raw `.wasm` and load
-it from a URL allowed by CSP.
+The Rust side's `clone` drops the undo stack by design (it's a snapshot of the board, not the game). The TS wrapper layers on top: the clone receives a copy of `moveStack` and the headers map (`src/chess.ts:654`). In practice that means `undo()` works on a clone back to where the parent was, and `pgn()` on a clone emits the same headers.
+
+### 5. `hash()` is a stable Zobrist key
+
+793 keys seeded deterministically via SplitMix64 from `INITIAL_SEED: u64 = 0xC3A5_C85C_97CB_3127` (`rust/core/src/zobrist.rs:17`). Layout:
+
+- 12 × 64 piece-square keys (6 types × 2 colors × 64 squares)
+- 16 castling-state keys (all subsets of KQkq)
+- 8 en-passant file keys (one per file; only set when an EP capture is actually possible)
+- 1 side-to-move key
+
+Positions that are equivalent for FIDE repetition purposes — same pieces, same side to move, same castling rights, same en-passant option — therefore collide on `hash()`. If the seed ever changes, downstream transposition tables break. Treat `INITIAL_SEED` as a public contract.
+
+### 6. Threefold repetition is scoped by the halfmove counter
+
+`isThreefoldRepetition()` counts occurrences of the current hash by walking back exactly `halfmove` positions (`rust/core/src/position.rs:686`). That is FIDE 9.2 / 9.3 in code form: pawn moves and captures reset the 50-move counter, so they also bound the repetition window — positions that straddle such a move cannot have been "the same position" in the FIDE sense anyway.
+
+Castling and a king-move-that-loses-castling-rights do **not** reset the halfmove counter, but they do change the castling-rights portion of the Zobrist key. So two positions that share piece placement but differ in castling rights are different positions, which is the FIDE answer regardless of the lookback rule.
+
+### 7. The WASM handle is explicit
+
+`chess.dispose()` frees the underlying WASM slot. On TypeScript ≥5.2 / Node ≥22, `using` invokes it automatically at scope end (`chess[Symbol.dispose]()` at `src/chess.ts:665`). Calling any method on a disposed instance throws `DisposedError`.
+
+## Not exposed today
+
+These aren't differences with chess.js per se — they're things we simply don't ship yet. All are acceptable PRs if you need them:
+
+- `board()` 8×8 array accessor.
+- Chess960 / Fischer random castling.
+- Variants (atomic, antichess, crazyhouse, three-check, king-of-the-hill).
+- Configurable PGN wrap width or newline style.
+- Move notation other than SAN / UCI (e.g., ICCF numeric).
+
+If you're porting chess.js code that relies on any of these, the port will need structural changes, not just a rename.

@@ -70,12 +70,7 @@ export interface UltrachessAbi {
 
   // Strings.
   ultrachess_fen_write(handle: number, out_ptr: number, cap: number): number;
-  ultrachess_san_write(
-    handle: number,
-    packed: number,
-    out_ptr: number,
-    cap: number,
-  ): number;
+  ultrachess_san_write(handle: number, packed: number, out_ptr: number, cap: number): number;
   ultrachess_san_parse(handle: number, utf8_ptr: number, utf8_len: number): number;
   ultrachess_ascii_write(handle: number, out_ptr: number, cap: number): number;
 
@@ -83,25 +78,10 @@ export interface UltrachessAbi {
   ultrachess_pgn_parse(pgn_ptr: number, pgn_len: number): number;
   ultrachess_pgn_free(handle: number): number;
   ultrachess_pgn_header_count(handle: number): number;
-  ultrachess_pgn_header_key(
-    handle: number,
-    idx: number,
-    out_ptr: number,
-    cap: number,
-  ): number;
-  ultrachess_pgn_header_value(
-    handle: number,
-    idx: number,
-    out_ptr: number,
-    cap: number,
-  ): number;
+  ultrachess_pgn_header_key(handle: number, idx: number, out_ptr: number, cap: number): number;
+  ultrachess_pgn_header_value(handle: number, idx: number, out_ptr: number, cap: number): number;
   ultrachess_pgn_mainline_len(handle: number): number;
-  ultrachess_pgn_mainline_san(
-    handle: number,
-    idx: number,
-    out_ptr: number,
-    cap: number,
-  ): number;
+  ultrachess_pgn_mainline_san(handle: number, idx: number, out_ptr: number, cap: number): number;
   ultrachess_pgn_termination(handle: number): number;
 
   // Move introspection.
@@ -120,9 +100,12 @@ let cachedAbi: UltrachessAbi | null = null;
 export const EXPECTED_ABI_VERSION = 2;
 
 export class AbiVersionMismatchError extends Error {
-  constructor(public readonly expected: number, public readonly actual: number) {
+  constructor(
+    public readonly expected: number,
+    public readonly actual: number,
+  ) {
     super(
-      `ultrachessjs: WASM ABI version mismatch (expected ${expected}, got ${actual}). ` +
+      `ultrachess: WASM ABI version mismatch (expected ${expected}, got ${actual}). ` +
         `The bundled .wasm is out of sync with the TS loader.`,
     );
     this.name = "AbiVersionMismatchError";
@@ -189,7 +172,7 @@ async function fetchWasmBytes(): Promise<ArrayBuffer> {
   const response = await fetch(wasmUrl);
   if (!response.ok) {
     throw new Error(
-      `ultrachessjs: failed to fetch WASM at ${wasmUrl.href}: ${response.status} ${response.statusText}`,
+      `ultrachess: failed to fetch WASM at ${wasmUrl.href}: ${response.status} ${response.statusText}`,
     );
   }
   return await response.arrayBuffer();
@@ -210,16 +193,13 @@ const decoder = /* @__PURE__ */ new TextDecoder("utf-8");
 /** Encode `s` into WASM linear memory at the string-scratch area. Returns
  *  `[ptr, len]`. The scratch buffer is reused — do NOT hold the pointer
  *  across further calls that also write into scratch. */
-export function writeStringToScratch(
-  abi: UltrachessAbi,
-  s: string,
-): { ptr: number; len: number } {
+export function writeStringToScratch(abi: UltrachessAbi, s: string): { ptr: number; len: number } {
   const bytes = encoder.encode(s);
   const ptr = abi.ultrachess_string_scratch_ptr();
   const cap = abi.ultrachess_string_scratch_cap();
   if (bytes.length > cap) {
     throw new RangeError(
-      `ultrachessjs: string (${bytes.length} bytes) exceeds scratch capacity (${cap})`,
+      `ultrachess: string (${bytes.length} bytes) exceeds scratch capacity (${cap})`,
     );
   }
   new Uint8Array(abi.memory.buffer, ptr, bytes.length).set(bytes);
@@ -227,11 +207,7 @@ export function writeStringToScratch(
 }
 
 /** Read `len` bytes at `ptr` as a UTF-8 string. */
-export function readStringFromMemory(
-  abi: UltrachessAbi,
-  ptr: number,
-  len: number,
-): string {
+export function readStringFromMemory(abi: UltrachessAbi, ptr: number, len: number): string {
   // Clamp: WASM might return a full length larger than the scratch cap (our
   // contract lets callers detect truncation). Consumers should never pass
   // a stale cap here; we guard defensively anyway.

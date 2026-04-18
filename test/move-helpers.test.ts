@@ -3,19 +3,19 @@
 import { describe, expect, it } from "vitest";
 import {
   Color,
-  MoveKind,
-  PieceType,
   decodePiece,
   encodePiece,
+  type Move,
+  MoveKind,
   moveFrom,
   moveKind,
   movePromotion,
   moveTo,
   moveToUci,
+  PieceType,
   parseSquare,
   pieceChar,
   squareName,
-  type Move,
 } from "../src/move.js";
 
 describe("move — square helpers", () => {
@@ -43,12 +43,8 @@ describe("move — square helpers", () => {
 
 describe("move — packed Move decoders", () => {
   // Hand-build packed values matching the Rust layout.
-  const pack = (
-    from: number,
-    to: number,
-    kind: MoveKind,
-    promoBits = 0,
-  ): Move => ((from | (to << 6) | (promoBits << 12) | (kind << 14)) as Move);
+  const pack = (from: number, to: number, kind: MoveKind, promoBits = 0): Move =>
+    (from | (to << 6) | (promoBits << 12) | (kind << 14)) as Move;
 
   it("moveFrom / moveTo / moveKind decode a normal move", () => {
     const m = pack(12, 28, MoveKind.Normal);

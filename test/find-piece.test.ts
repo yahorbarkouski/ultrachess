@@ -4,9 +4,7 @@ import { Chess, Color, PieceType } from "../src/index.js";
 describe("Chess — findPiece", () => {
   it("finds all White pawns on startpos", async () => {
     using chess = await Chess.create();
-    const pawns = chess
-      .findPiece({ color: Color.White, type: PieceType.Pawn })
-      .sort();
+    const pawns = chess.findPiece({ color: Color.White, type: PieceType.Pawn }).sort();
     expect(pawns).toEqual(["a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2"]);
   });
 

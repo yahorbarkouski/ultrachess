@@ -59,7 +59,7 @@ fn uc_fen_write(c: &mut Criterion) {
         b.iter(|| write_fen(black_box(&pos_uc)));
     });
     g.bench_function("shakmaty/startpos", |b| {
-        b.iter(|| format!("{}", Fen::from_position(black_box(shak.clone()), shakmaty::EnPassantMode::Legal)));
+        b.iter(|| format!("{}", Fen::from_position(&black_box(shak.clone()), shakmaty::EnPassantMode::Legal)));
     });
     g.bench_function("cozy/startpos", |b| {
         b.iter(|| format!("{}", black_box(&cozy)));
@@ -203,7 +203,8 @@ fn make_unmake_pair(c: &mut Criterion) {
             b.iter(|| {
                 for m in &moves {
                     let c = black_box(&p).clone();
-                    let _ = c.play(m).unwrap();
+                    // shakmaty ≥0.30 takes Move by value.
+                    let _ = c.play(m.clone()).unwrap();
                 }
             });
         });
@@ -322,7 +323,8 @@ fn san_write_op(c: &mut Criterion) {
             b.iter(|| {
                 let mut acc = 0usize;
                 for m in &legal {
-                    let san = San::from_move(black_box(&p), m);
+                    // shakmaty ≥0.30 takes Move by value.
+                    let san = San::from_move(black_box(&p), m.clone());
                     acc += format!("{san}").len();
                 }
                 black_box(acc);

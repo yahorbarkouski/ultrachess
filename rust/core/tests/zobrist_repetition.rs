@@ -10,7 +10,6 @@ use common::{find_move, Rng, STARTING_FEN};
 use ultrachess_core::chess_move::Move;
 use ultrachess_core::fen::{parse_fen, write_fen};
 use ultrachess_core::movegen::{generate_legal_moves, MoveList};
-use ultrachess_core::position::Position;
 use ultrachess_core::zobrist;
 use ultrachess_core::Square;
 
@@ -26,7 +25,9 @@ fn incremental_hash_matches_from_scratch_on_random_walks() {
         let mut ml = MoveList::new();
         for _ in 0..100 {
             generate_legal_moves(&p, &mut ml);
-            if ml.is_empty() || p.halfmove >= 100 { break; }
+            if ml.is_empty() || p.halfmove >= 100 {
+                break;
+            }
             assert_eq!(p.hash(), zobrist::compute_hash_from_scratch(&p));
             let m: Move = ml.as_slice()[rng.bounded(ml.len())];
             let before = p.hash();
@@ -46,7 +47,9 @@ fn fen_roundtrip_preserves_hash() {
     let mut ml = MoveList::new();
     for _ in 0..500 {
         generate_legal_moves(&p, &mut ml);
-        if ml.is_empty() { break; }
+        if ml.is_empty() {
+            break;
+        }
         p.make_move(ml.as_slice()[rng.bounded(ml.len())]);
     }
     let fen = write_fen(&p);
@@ -78,18 +81,18 @@ fn knight_shuttle_trips_threefold_on_third_visit() {
     assert!(!p.is_threefold_repetition());
 
     // Visit 2.
-    for m in [find_move(&p, g1, f3)] { p.make_move(m); }
-    for m in [find_move(&p, g8, f6)] { p.make_move(m); }
-    for m in [find_move(&p, f3, g1)] { p.make_move(m); }
-    for m in [find_move(&p, f6, g8)] { p.make_move(m); }
+    p.make_move(find_move(&p, g1, f3));
+    p.make_move(find_move(&p, g8, f6));
+    p.make_move(find_move(&p, f3, g1));
+    p.make_move(find_move(&p, f6, g8));
     assert_eq!(p.hash(), start_hash);
     assert!(!p.is_threefold_repetition(), "only 2 occurrences so far");
 
     // Visit 3.
-    for m in [find_move(&p, g1, f3)] { p.make_move(m); }
-    for m in [find_move(&p, g8, f6)] { p.make_move(m); }
-    for m in [find_move(&p, f3, g1)] { p.make_move(m); }
-    for m in [find_move(&p, f6, g8)] { p.make_move(m); }
+    p.make_move(find_move(&p, g1, f3));
+    p.make_move(find_move(&p, g8, f6));
+    p.make_move(find_move(&p, f3, g1));
+    p.make_move(find_move(&p, f6, g8));
     assert_eq!(p.hash(), start_hash);
     assert!(p.is_threefold_repetition());
 }
@@ -131,10 +134,10 @@ fn repetition_scope_tracks_halfmove_clock() {
 #[test]
 fn insufficient_material_known_positions() {
     let insufficient = [
-        "8/8/8/4k3/8/4K3/8/8 w - - 0 1",              // K vs K
-        "8/8/8/4k3/8/4K3/8/5N2 w - - 0 1",            // K+N vs K
-        "8/8/8/4k3/8/4K3/8/5B2 w - - 0 1",            // K+B vs K
-        "8/8/8/4k3/4B3/8/4K3/1b6 w - - 0 1",          // same-colour bishops
+        "8/8/8/4k3/8/4K3/8/8 w - - 0 1",     // K vs K
+        "8/8/8/4k3/8/4K3/8/5N2 w - - 0 1",   // K+N vs K
+        "8/8/8/4k3/8/4K3/8/5B2 w - - 0 1",   // K+B vs K
+        "8/8/8/4k3/4B3/8/4K3/1b6 w - - 0 1", // same-colour bishops
     ];
     for fen in insufficient {
         let p = parse_fen(fen).unwrap();
@@ -143,11 +146,11 @@ fn insufficient_material_known_positions() {
     }
 
     let sufficient = [
-        "8/8/8/4k3/8/8/4K3/b6B w - - 0 1",            // opposite-colour bishops
-        "8/8/8/4k3/8/8/4K3/5N1N w - - 0 1",           // K+NN vs K (chess.js convention)
-        "8/8/8/4k3/8/8/4K3/5Q2 w - - 0 1",            // K+Q vs K
-        "8/8/8/4k3/8/8/4K3/5R2 w - - 0 1",            // K+R vs K
-        "8/8/8/4k3/8/8/4PK2/8 w - - 0 1",             // K+P vs K
+        "8/8/8/4k3/8/8/4K3/b6B w - - 0 1",  // opposite-colour bishops
+        "8/8/8/4k3/8/8/4K3/5N1N w - - 0 1", // K+NN vs K (chess.js convention)
+        "8/8/8/4k3/8/8/4K3/5Q2 w - - 0 1",  // K+Q vs K
+        "8/8/8/4k3/8/8/4K3/5R2 w - - 0 1",  // K+R vs K
+        "8/8/8/4k3/8/8/4PK2/8 w - - 0 1",   // K+P vs K
     ];
     for fen in sufficient {
         let p = parse_fen(fen).unwrap();
@@ -161,9 +164,8 @@ fn insufficient_material_known_positions() {
 
 #[test]
 fn checkmate_detected() {
-    let p = parse_fen(
-        "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4",
-    ).unwrap();
+    let p =
+        parse_fen("r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4").unwrap();
     assert!(p.is_checkmate());
     assert!(!p.is_stalemate());
     assert!(p.is_game_over());
@@ -180,8 +182,12 @@ fn stalemate_detected() {
 
 #[test]
 fn fifty_move_rule_threshold() {
-    assert!(!parse_fen("4k3/8/8/8/8/8/8/4K3 w - - 99 1").unwrap().is_fifty_move_rule());
-    assert!(parse_fen("4k3/8/8/8/8/8/8/4K3 w - - 100 1").unwrap().is_fifty_move_rule());
+    assert!(!parse_fen("4k3/8/8/8/8/8/8/4K3 w - - 99 1")
+        .unwrap()
+        .is_fifty_move_rule());
+    assert!(parse_fen("4k3/8/8/8/8/8/8/4K3 w - - 100 1")
+        .unwrap()
+        .is_fifty_move_rule());
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +204,9 @@ fn million_iteration_hash_consistency() {
         let mut ml = MoveList::new();
         for _ in 0..100 {
             generate_legal_moves(&p, &mut ml);
-            if ml.is_empty() || p.halfmove >= 100 { break; }
+            if ml.is_empty() || p.halfmove >= 100 {
+                break;
+            }
             assert_eq!(p.hash(), zobrist::compute_hash_from_scratch(&p));
             total += 1;
             let m = ml.as_slice()[rng.bounded(ml.len())];
@@ -212,5 +220,8 @@ fn million_iteration_hash_consistency() {
             p.make_move(m);
         }
     }
-    assert!(total >= 1_000_000, "only {total} assertions ran; target ≥ 1M");
+    assert!(
+        total >= 1_000_000,
+        "only {total} assertions ran; target ≥ 1M"
+    );
 }

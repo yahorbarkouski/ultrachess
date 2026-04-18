@@ -31,7 +31,7 @@ struct Row {
     t_ms: [Option<f64>; 4],
 }
 
-const ENGINES: [&str; 4] = ["ultrachessjs", "shakmaty", "cozy-chess", "chess (jb)"];
+const ENGINES: [&str; 4] = ["ultrachess", "shakmaty", "cozy-chess", "chess (jb)"];
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -74,14 +74,14 @@ fn main() {
             t_ms: [None; 4],
         };
 
-        // --- ultrachessjs
+        // --- ultrachess
         {
             let pos = ours::parse(fen);
             let (n, t) = time_it(trials, || ours::perft(&pos, depth));
             row.nodes = n;
             row.nps[0] = Some(n as f64 / t);
             row.t_ms[0] = Some(t * 1000.0);
-            eprintln!("    ultrachessjs : {:>12} nodes   {:>8.2} Mnps   {:>7.1} ms", n, n as f64 / t / 1e6, t * 1000.0);
+            eprintln!("    ultrachess : {:>12} nodes   {:>8.2} Mnps   {:>7.1} ms", n, n as f64 / t / 1e6, t * 1000.0);
         }
 
         // --- shakmaty

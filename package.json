@@ -1,5 +1,5 @@
 {
-  "name": "ultrachessjs",
+  "name": "ultrachess",
   "version": "0.0.1-phase7",
   "description": "Ultra-fast WASM-first chess library (Rust core + TypeScript shim).",
   "type": "module",
@@ -45,14 +45,20 @@
     "coverage:ts": "vitest run --coverage",
     "coverage:rs": "cargo llvm-cov -p ultrachess-core --summary-only",
     "coverage": "npm run coverage:rs && npm run build:wasm && npm run build:inline && npm run coverage:ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "fmt": "cargo fmt --all && biome format --write .",
+    "fmt:check": "cargo fmt --all --check && biome format .",
+    "lint": "cargo clippy --all-targets --workspace -- -D warnings && biome lint .",
+    "check": "npm run fmt:check && npm run lint && npm run typecheck"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@vitest/coverage-v8": "^2.1.9",
-    "tsup": "^8.3.0",
-    "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "@biomejs/biome": "^2.4.12",
+    "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^4.1.4",
+    "chess.js": "^1.4.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
   },
   "keywords": [
     "chess",

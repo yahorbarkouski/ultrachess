@@ -9,8 +9,8 @@
 //!    variable points to a file, parse and replay every game in it.
 //!    Intended for running against a 4000-game TWIC/Lichess sample during
 //!    release validation. Run with:
-//!      `ULTRACHESS_PGN_CORPUS=/path/to/corpus.pgn cargo test --release \
-//!       --test pgn_corpus -- --ignored external_corpus`
+//!    `ULTRACHESS_PGN_CORPUS=/path/to/corpus.pgn cargo test --release \
+//!    --test pgn_corpus -- --ignored external_corpus`
 
 use std::fs;
 
@@ -38,9 +38,9 @@ fn embedded_corpus_has_expected_breadth() {
     // one uses castling, one uses promotion.
     let games = parse_pgn_many(EMBEDDED_PGN).unwrap();
 
-    let has_mate = games.iter().any(|g| {
-        g.mainline.iter().any(|n| n.san.ends_with('#'))
-    });
+    let has_mate = games
+        .iter()
+        .any(|g| g.mainline.iter().any(|n| n.san.ends_with('#')));
     let has_draw = games
         .iter()
         .any(|g| g.termination == ultrachess_core::pgn::Termination::Draw);

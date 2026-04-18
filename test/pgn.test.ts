@@ -18,7 +18,7 @@ describe("Chess — PGN load / save", () => {
   });
 
   it("loadPgn preserves SAN in history({verbose})", async () => {
-    const pgn = "[Event \"t\"]\n\n1. e4 e5 2. Nf3 *\n";
+    const pgn = '[Event "t"]\n\n1. e4 e5 2. Nf3 *\n';
     using chess = await Chess.loadPgn(pgn);
     const v = chess.history({ verbose: true });
     expect(v.map((m) => m.san)).toEqual(["e4", "e5", "Nf3"]);
@@ -43,9 +43,7 @@ describe("Chess — PGN load / save", () => {
   });
 
   it("loadPgn rejects PGNs with illegal SAN", async () => {
-    await expect(Chess.loadPgn("\n1. e4 e5 2. Qxf7 *\n")).rejects.toBeInstanceOf(
-      InvalidPgnError,
-    );
+    await expect(Chess.loadPgn("\n1. e4 e5 2. Qxf7 *\n")).rejects.toBeInstanceOf(InvalidPgnError);
   });
 
   it("pgn() emits 7-tag-roster first then mainline", async () => {

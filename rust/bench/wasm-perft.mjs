@@ -87,7 +87,7 @@ const runtimeName = process.versions.bun
   ? `Bun ${process.versions.bun}`
   : `Node ${process.versions.node}`;
 
-console.log(`# ultrachessjs WASM perft — ${runtimeName}`);
+console.log(`# ultrachess WASM perft — ${runtimeName}`);
 console.log(`# tier: ${deep ? "deep" : "standard"}, trials: ${trials}`);
 console.log("");
 console.log(

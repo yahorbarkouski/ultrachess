@@ -273,11 +273,7 @@ const fn line_through(a: i32, b: i32) -> Bitboard {
     // Find the boundary going in the negative direction, then step forward.
     let mut f = fa;
     let mut r = ra;
-    while f - step_file >= 0
-        && f - step_file < 8
-        && r - step_rank >= 0
-        && r - step_rank < 8
-    {
+    while f - step_file >= 0 && f - step_file < 8 && r - step_rank >= 0 && r - step_rank < 8 {
         f -= step_file;
         r -= step_rank;
     }
@@ -318,8 +314,8 @@ const fn compute_line() -> [[Bitboard; 64]; 64] {
     table
 }
 
-pub const BETWEEN: [[Bitboard; 64]; 64] = compute_between();
-pub const LINE: [[Bitboard; 64]; 64] = compute_line();
+pub static BETWEEN: [[Bitboard; 64]; 64] = compute_between();
+pub static LINE: [[Bitboard; 64]; 64] = compute_line();
 
 #[inline(always)]
 pub fn between(a: u8, b: u8) -> Bitboard {
@@ -358,8 +354,14 @@ mod tests {
     fn knight_attack_shape_from_d4() {
         // Expected targets: b3, b5, c2, c6, e2, e6, f3, f5
         let expected = bb_of(&[
-            sq(1, 2), sq(1, 4), sq(2, 1), sq(2, 5),
-            sq(4, 1), sq(4, 5), sq(5, 2), sq(5, 4),
+            sq(1, 2),
+            sq(1, 4),
+            sq(2, 1),
+            sq(2, 5),
+            sq(4, 1),
+            sq(4, 5),
+            sq(5, 2),
+            sq(5, 4),
         ]);
         assert_eq!(knight_attacks(sq(3, 3).0), expected);
     }
@@ -368,7 +370,7 @@ mod tests {
     fn king_attack_counts() {
         assert_eq!(popcount(king_attacks(Square::A1.0)), 3); // corner
         assert_eq!(popcount(king_attacks(Square::E1.0)), 5); // edge
-        assert_eq!(popcount(king_attacks(sq(3, 3).0)), 8);   // center d4
+        assert_eq!(popcount(king_attacks(sq(3, 3).0)), 8); // center d4
     }
 
     #[test]
@@ -404,10 +406,8 @@ mod tests {
         // North ray: a2, a3, a4 (blocker is captured, i.e. included)
         // Other rays: b1..h1 since empty.
         let expected_north = bb_of(&[sq(0, 1), sq(0, 2), sq(0, 3)]);
-        let expected_east = (bitboard::RANK_1 & !Square::A1.bb()) & !0;
         let expected = expected_north | (bitboard::RANK_1 & !Square::A1.bb());
         assert_eq!(attacks, expected);
-        let _ = expected_east;
     }
 
     #[test]
@@ -416,7 +416,13 @@ mod tests {
         let a1 = Square::A1.0;
         let attacks = bishop_attacks(a1, 0);
         let expected = bb_of(&[
-            sq(1, 1), sq(2, 2), sq(3, 3), sq(4, 4), sq(5, 5), sq(6, 6), sq(7, 7),
+            sq(1, 1),
+            sq(2, 2),
+            sq(3, 3),
+            sq(4, 4),
+            sq(5, 5),
+            sq(6, 6),
+            sq(7, 7),
         ]);
         assert_eq!(attacks, expected);
     }
@@ -437,10 +443,7 @@ mod tests {
         // d4 and d8: between is d5, d6, d7; line is entire d-file.
         let d4 = sq(3, 3).0;
         let d8 = sq(3, 7).0;
-        assert_eq!(
-            between(d4, d8),
-            bb_of(&[sq(3, 4), sq(3, 5), sq(3, 6)])
-        );
+        assert_eq!(between(d4, d8), bb_of(&[sq(3, 4), sq(3, 5), sq(3, 6)]));
         assert_eq!(line(d4, d8), bitboard::FILE_D);
     }
 
@@ -449,9 +452,7 @@ mod tests {
         // a1 and h8: between is b2..g7; line is the a1-h8 diagonal.
         let a1 = Square::A1.0;
         let h8 = Square::H8.0;
-        let expected_between = bb_of(&[
-            sq(1, 1), sq(2, 2), sq(3, 3), sq(4, 4), sq(5, 5), sq(6, 6),
-        ]);
+        let expected_between = bb_of(&[sq(1, 1), sq(2, 2), sq(3, 3), sq(4, 4), sq(5, 5), sq(6, 6)]);
         assert_eq!(between(a1, h8), expected_between);
 
         let expected_line = expected_between | Square::A1.bb() | Square::H8.bb();
@@ -626,4 +627,3 @@ mod tests {
         assert_eq!(between(a1, sq(1, 2).0), 0);
     }
 }
-

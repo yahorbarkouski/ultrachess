@@ -11,27 +11,26 @@
 import {
   getAbi,
   init,
-  readStringFromMemory,
   readStringScratch,
   readU64,
   type UltrachessAbi,
   writeStringToScratch,
 } from "./loader.js";
 import {
-  Color,
-  MoveKind,
-  PieceType,
+  type Color,
   decodePiece,
   encodePiece,
+  type Move,
+  MoveKind,
   moveFrom as moveFromHelper,
   moveKind as moveKindHelper,
   movePromotion as movePromotionHelper,
   moveTo as moveToHelper,
   moveToUci,
+  type Piece,
+  PieceType,
   parseSquare,
   squareName,
-  type Move,
-  type Piece,
   type VerboseMove,
 } from "./move.js";
 
@@ -63,8 +62,7 @@ export class InvalidPgnError extends Error {
   }
 }
 
-export const STARTING_FEN =
-  "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+export const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 // Lazily populated by `Chess.create` / `Chess.fromFen` / `Chess.loadPgn`.
 let abi: UltrachessAbi | null = null;
@@ -140,7 +138,7 @@ export class Chess {
     const a = getAbi();
     if (!a) {
       throw new Error(
-        "ultrachessjs: Chess.createSync() requires init() or initSync() to have been called first. " +
+        "ultrachess: Chess.createSync() requires init() or initSync() to have been called first. " +
           "Use `ultrachess/inline` for sync access in environments without top-level await.",
       );
     }
@@ -204,10 +202,7 @@ export class Chess {
 
       // Pick the starting position — respect a FEN/SetUp header if present.
       const startFen = headers.get("FEN");
-      const chess =
-        startFen !== undefined
-          ? await Chess.create(startFen)
-          : await Chess.create();
+      const chess = startFen !== undefined ? await Chess.create(startFen) : await Chess.create();
 
       // Copy parsed headers onto the Chess instance.
       for (const [k, v] of headers) {
@@ -221,9 +216,7 @@ export class Chess {
           chess.move(san);
         } catch (err) {
           chess.dispose();
-          throw new InvalidPgnError(
-            `illegal SAN "${san}" at ply ${i}: ${(err as Error).message}`,
-          );
+          throw new InvalidPgnError(`illegal SAN "${san}" at ply ${i}: ${(err as Error).message}`);
         }
       }
       return chess;
@@ -293,14 +286,38 @@ export class Chess {
   // Game-end checks
   // --------------------------------------------------------------------
 
-  inCheck(): boolean { this.requireAlive(); return this.abi.ultrachess_in_check(this.handle) !== 0; }
-  isCheckmate(): boolean { this.requireAlive(); return this.abi.ultrachess_is_checkmate(this.handle) !== 0; }
-  isStalemate(): boolean { this.requireAlive(); return this.abi.ultrachess_is_stalemate(this.handle) !== 0; }
-  isInsufficientMaterial(): boolean { this.requireAlive(); return this.abi.ultrachess_is_insufficient_material(this.handle) !== 0; }
-  isThreefoldRepetition(): boolean { this.requireAlive(); return this.abi.ultrachess_is_threefold_repetition(this.handle) !== 0; }
-  isFiftyMoveRule(): boolean { this.requireAlive(); return this.abi.ultrachess_is_fifty_move_rule(this.handle) !== 0; }
-  isDraw(): boolean { this.requireAlive(); return this.abi.ultrachess_is_draw(this.handle) !== 0; }
-  isGameOver(): boolean { this.requireAlive(); return this.abi.ultrachess_is_game_over(this.handle) !== 0; }
+  inCheck(): boolean {
+    this.requireAlive();
+    return this.abi.ultrachess_in_check(this.handle) !== 0;
+  }
+  isCheckmate(): boolean {
+    this.requireAlive();
+    return this.abi.ultrachess_is_checkmate(this.handle) !== 0;
+  }
+  isStalemate(): boolean {
+    this.requireAlive();
+    return this.abi.ultrachess_is_stalemate(this.handle) !== 0;
+  }
+  isInsufficientMaterial(): boolean {
+    this.requireAlive();
+    return this.abi.ultrachess_is_insufficient_material(this.handle) !== 0;
+  }
+  isThreefoldRepetition(): boolean {
+    this.requireAlive();
+    return this.abi.ultrachess_is_threefold_repetition(this.handle) !== 0;
+  }
+  isFiftyMoveRule(): boolean {
+    this.requireAlive();
+    return this.abi.ultrachess_is_fifty_move_rule(this.handle) !== 0;
+  }
+  isDraw(): boolean {
+    this.requireAlive();
+    return this.abi.ultrachess_is_draw(this.handle) !== 0;
+  }
+  isGameOver(): boolean {
+    this.requireAlive();
+    return this.abi.ultrachess_is_game_over(this.handle) !== 0;
+  }
 
   // --------------------------------------------------------------------
   // Attack queries
@@ -334,13 +351,7 @@ export class Chess {
   findPiece(piece: Piece): string[] {
     this.requireAlive();
     const scratchPtr = this.abi.ultrachess_string_scratch_ptr();
-    const count = this.abi.ultrachess_find_piece(
-      this.handle,
-      piece.color,
-      piece.type,
-      0,
-      64,
-    );
+    const count = this.abi.ultrachess_find_piece(this.handle, piece.color, piece.type, 0, 64);
     const view = new Uint8Array(this.abi.memory.buffer, scratchPtr, count);
     const out = new Array<string>(count);
     for (let i = 0; i < count; i++) out[i] = squareName(view[i]!);
@@ -366,9 +377,7 @@ export class Chess {
     const code = encodePiece(piece);
     const result = this.abi.ultrachess_put(this.handle, code, idx);
     if (result === PIECE_INVALID_ARGS) {
-      throw new RangeError(
-        `invalid put(${JSON.stringify(piece)}, ${String(square)})`,
-      );
+      throw new RangeError(`invalid put(${JSON.stringify(piece)}, ${String(square)})`);
     }
     // Edits wipe history; clear our own stack so `undo()` returns null.
     this.moveStack.length = 0;
@@ -403,9 +412,7 @@ export class Chess {
   moves(): string[];
   moves(options: { raw: true }): Move[];
   moves(options: { verbose: true }): VerboseMove[];
-  moves(
-    options?: { raw?: boolean; verbose?: boolean },
-  ): string[] | Move[] | VerboseMove[] {
+  moves(options?: { raw?: boolean; verbose?: boolean }): string[] | Move[] | VerboseMove[] {
     this.requireAlive();
     const packed = this.legalMoves();
     if (options?.raw) return packed;
@@ -589,9 +596,7 @@ export class Chess {
     const out: string[] = [];
 
     // 7-tag roster first, then everything else in insertion order.
-    const sevenTags = [
-      "Event", "Site", "Date", "Round", "White", "Black", "Result",
-    ];
+    const sevenTags = ["Event", "Site", "Date", "Round", "White", "Black", "Result"];
     const emitted = new Set<string>();
     for (const tag of sevenTags) {
       const v = this.headerMap.get(tag);
@@ -612,7 +617,7 @@ export class Chess {
         out.push(line);
         line = "";
       }
-      line += line.length > 0 ? " " + tok : tok;
+      line += line.length > 0 ? ` ${tok}` : tok;
     };
 
     for (let i = 0; i < verboseHistory.length; i++) {
@@ -625,7 +630,7 @@ export class Chess {
     push(result);
     if (line.length > 0) out.push(line);
 
-    return out.join("\n") + "\n";
+    return `${out.join("\n")}\n`;
   }
 
   // --------------------------------------------------------------------
@@ -640,13 +645,22 @@ export class Chess {
     return readU64(this.abi, lo);
   }
 
-  /** Deep clone. The new Chess has its own WASM handle. */
+  /** Clone the current position as an independent, **fresh** Chess.
+   *
+   *  Semantics mirror `Position::clone` in the Rust core: the returned
+   *  instance represents the same board state but with an empty move
+   *  history — `undo()` on the clone returns `null` until it has played
+   *  moves of its own. This matches the common "snapshot this state"
+   *  use case (equivalent to `new Chess(original.fen())`) and avoids a
+   *  heap copy of the undo stack on every clone.
+   *
+   *  Headers are copied — they're metadata about the *game*, not the
+   *  undo stack, and users expect them to travel with a clone. */
   clone(): Chess {
     this.requireAlive();
     const handle = this.abi.ultrachess_clone(this.handle);
     if (isInvalidHandle(handle)) throw new DisposedError();
     const copy = new Chess(this.abi, handle);
-    copy.moveStack.push(...this.moveStack);
     for (const [k, v] of this.headerMap) copy.headerMap.set(k, v);
     return copy;
   }
@@ -665,4 +679,3 @@ export class Chess {
 function escapeHeader(v: string): string {
   return v.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
-

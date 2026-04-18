@@ -539,10 +539,31 @@ fn emit_pawn_moves<S: MoveSink>(
         emit_pawn_class(sink, single_non_promo, push_dir, false, pinned, king_sq);
         emit_pawn_class(sink, single_promo, push_dir, true, pinned, king_sq);
         emit_pawn_class(sink, double_targets, push_dir * 2, false, pinned, king_sq);
-        emit_pawn_class(sink, cap_left_non_promo, cap_left_offset, false, pinned, king_sq);
+        emit_pawn_class(
+            sink,
+            cap_left_non_promo,
+            cap_left_offset,
+            false,
+            pinned,
+            king_sq,
+        );
         emit_pawn_class(sink, cap_left_promo, cap_left_offset, true, pinned, king_sq);
-        emit_pawn_class(sink, cap_right_non_promo, cap_right_offset, false, pinned, king_sq);
-        emit_pawn_class(sink, cap_right_promo, cap_right_offset, true, pinned, king_sq);
+        emit_pawn_class(
+            sink,
+            cap_right_non_promo,
+            cap_right_offset,
+            false,
+            pinned,
+            king_sq,
+        );
+        emit_pawn_class(
+            sink,
+            cap_right_promo,
+            cap_right_offset,
+            true,
+            pinned,
+            king_sq,
+        );
     }
 
     // --- En passant (rare) -------------------------------------------------
@@ -554,16 +575,11 @@ fn emit_pawn_moves<S: MoveSink>(
             let cap_sq = Square::from_file_rank(ep.file(), from.rank());
 
             // Standard pin check along the pin line.
-            if pinned & from.bb() != 0
-                && (tables::line(king_sq.0, from.0) & ep.bb()) == 0
-            {
+            if pinned & from.bb() != 0 && (tables::line(king_sq.0, from.0) & ep.bb()) == 0 {
                 continue;
             }
             // Check-evasion: the EP must capture the checker or block it.
-            if check_mask != !0
-                && (cap_sq.bb() & check_mask) == 0
-                && (ep.bb() & check_mask) == 0
-            {
+            if check_mask != !0 && (cap_sq.bb() & check_mask) == 0 && (ep.bb() & check_mask) == 0 {
                 continue;
             }
             // EP horizontal-discovered-check.
@@ -763,7 +779,10 @@ mod tests {
 
         let fen2 = "5rk1/8/8/8/8/8/8/R3K2R w KQ - 0 1";
         let (_p, ml2) = gen(fen2);
-        let castles2: Vec<_> = ml2.iter().filter(|m| m.kind() == MoveKind::Castle).collect();
+        let castles2: Vec<_> = ml2
+            .iter()
+            .filter(|m| m.kind() == MoveKind::Castle)
+            .collect();
         assert_eq!(castles2.len(), 1);
         assert_eq!(castles2[0].to(), Square::C1);
         assert_count_matches(fen);
@@ -787,9 +806,18 @@ mod tests {
         let c3 = Square::from_file_rank(2, 2);
         let d3 = Square::from_file_rank(3, 2);
         let e3 = Square::from_file_rank(4, 2);
-        let caps_c3: Vec<_> = ml.iter().filter(|m| m.from() == Square::D2 && m.to() == c3).collect();
-        let push_d3: Vec<_> = ml.iter().filter(|m| m.from() == Square::D2 && m.to() == d3).collect();
-        let cap_e3: Vec<_> = ml.iter().filter(|m| m.from() == Square::D2 && m.to() == e3).collect();
+        let caps_c3: Vec<_> = ml
+            .iter()
+            .filter(|m| m.from() == Square::D2 && m.to() == c3)
+            .collect();
+        let push_d3: Vec<_> = ml
+            .iter()
+            .filter(|m| m.from() == Square::D2 && m.to() == d3)
+            .collect();
+        let cap_e3: Vec<_> = ml
+            .iter()
+            .filter(|m| m.from() == Square::D2 && m.to() == e3)
+            .collect();
         assert_eq!(caps_c3.len(), 1, "must be able to capture pinner");
         assert_eq!(push_d3.len(), 0, "push breaks pin");
         assert_eq!(cap_e3.len(), 0, "capture off the pin line is illegal");
@@ -800,8 +828,15 @@ mod tests {
     fn ep_discovered_check_is_rejected() {
         let fen = "8/8/8/KPp4r/8/8/8/4k3 w - c6 0 1";
         let (_p, ml) = gen(fen);
-        let ep_moves: Vec<_> = ml.iter().filter(|m| m.kind() == MoveKind::EnPassant).collect();
-        assert_eq!(ep_moves.len(), 0, "EP must be rejected on horizontal discovered check");
+        let ep_moves: Vec<_> = ml
+            .iter()
+            .filter(|m| m.kind() == MoveKind::EnPassant)
+            .collect();
+        assert_eq!(
+            ep_moves.len(),
+            0,
+            "EP must be rejected on horizontal discovered check"
+        );
         assert_count_matches(fen);
     }
 

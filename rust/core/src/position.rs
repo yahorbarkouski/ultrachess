@@ -25,7 +25,7 @@ use crate::zobrist;
 /// restore is ~1 ns vs the 20-100 ns that an incremental reverse would cost.
 #[derive(Copy, Clone, Debug)]
 pub struct Undo {
-    pub captured: Piece,   // Piece::NONE if quiet
+    pub captured: Piece, // Piece::NONE if quiet
     pub prev_castling: CastlingRights,
     pub prev_ep: Option<Square>,
     pub prev_halfmove: u16,
@@ -208,6 +208,90 @@ impl Position {
         Some(removed)
     }
 
+    // -- ep legality ---------------------------------------------------------
+
+    /// True iff at least one *fully legal* en-passant capture to `ep_sq`
+    /// exists for `capturer` in the current piece geometry.
+    ///
+    /// ## Why full legality, not pseudo-legal
+    /// A pawn whose geometric move would land on `ep_sq` may still be
+    /// pinned, or the EP may uncover a rank-discovered rook/queen attack
+    /// on the capturer's king (the classic "EP discovered check" edge case
+    /// — removing *both* the capturer pawn and the just-pushed enemy pawn
+    /// on the same rank can expose the king). chess.js and the X-FEN 2020
+    /// spec both require full legality; anything looser and our FEN output
+    /// diverges, and our Zobrist hashes conflate semantically-distinct
+    /// positions for repetition / TT purposes.
+    ///
+    /// ## Why this is free
+    /// The same simulation runs inside `movegen.rs` when emitting EP moves.
+    /// By caching the answer in `ep_square` at make-move time, we pay the
+    /// check once per double pawn push (~30 ns at most, ~3 ns in the
+    /// common no-attacker fast path) and movegen skips the whole EP block
+    /// entirely whenever `ep_square` is None. For positions visited
+    /// repeatedly during search, this is a net speedup.
+    ///
+    /// ## Why this takes `capturer` explicitly
+    /// Callable from `make_move` *before* the side-to-move flip (where
+    /// `capturer = them`) and from `parse_fen` (where `capturer =
+    /// side_to_move`). Both pre-flip and post-parse states are expressed
+    /// without further bookkeeping.
+    pub(crate) fn ep_capture_is_legal_for(
+        &self,
+        ep_sq: Square,
+        capturer: Color,
+    ) -> bool {
+        let pusher = capturer.opponent();
+
+        // Pseudo-legal capturers: capturer pawns whose attack set covers
+        // `ep_sq`. Pawn-attack geometry is mirror-symmetric by colour, so
+        // the squares *from which* a capturer-coloured pawn attacks `ep_sq`
+        // are exactly `pawn_attacks(pusher, ep_sq)`.
+        let attack_from_mask = tables::pawn_attacks(pusher, ep_sq.0);
+        let mut capturers = attack_from_mask & self.piece_bb(capturer, PieceType::Pawn);
+        if capturers == 0 {
+            return false; // fast path: no pseudo-legal capturer at all
+        }
+
+        // The pushed pawn sits on `ep_sq`'s file, one rank toward the
+        // capturer (it just double-pushed *past* ep_sq).
+        let pushed_pawn_sq = match capturer {
+            Color::White => Square::from_file_rank(ep_sq.file(), ep_sq.rank() - 1),
+            Color::Black => Square::from_file_rank(ep_sq.file(), ep_sq.rank() + 1),
+        };
+
+        let king_sq = self.king_sq(capturer);
+        let pusher_rq = self.piece_bb(pusher, PieceType::Rook)
+            | self.piece_bb(pusher, PieceType::Queen);
+        let pusher_bq = self.piece_bb(pusher, PieceType::Bishop)
+            | self.piece_bb(pusher, PieceType::Queen);
+        let occ = self.occupied();
+
+        while capturers != 0 {
+            let from = bitboard::pop_lsb(&mut capturers);
+            // EP delta on the board: two removals (capturer pawn and the
+            // pushed enemy pawn, both on the capturer's 4th/5th rank) +
+            // one addition (capturer pawn lands on ep_sq).
+            let sim_occ = (occ ^ from.bb() ^ pushed_pawn_sq.bb()) | ep_sq.bb();
+
+            // Non-slider threats don't change: knight / enemy king / other
+            // enemy pawns all sit unchanged. The only new or removed
+            // threats are slider visibilities through the modified
+            // occupancy — and if the pushed pawn was delivering pawn
+            // check, it's already gone from `sim_occ`.
+            let rook_hit = tables::rook_attacks(king_sq.0, sim_occ) & pusher_rq;
+            if rook_hit != 0 {
+                continue;
+            }
+            let bishop_hit = tables::bishop_attacks(king_sq.0, sim_occ) & pusher_bq;
+            if bishop_hit != 0 {
+                continue;
+            }
+            return true;
+        }
+        false
+    }
+
     // -- board mutators (low-level; used by `make_move` / `unmake_move` and
     //    by FEN parser) -------------------------------------------------------
 
@@ -249,14 +333,15 @@ impl Position {
         // Pawns: we need *enemy* pawns that would capture sq, which is the same
         // as asking "where does a pawn of our color on sq attack from?" — flip
         // the color to get the squares they'd come from.
-        attackers |= tables::pawn_attacks(by.opponent(), sq.0) & self.pieces[by_i][PieceType::Pawn.index()];
+        attackers |=
+            tables::pawn_attacks(by.opponent(), sq.0) & self.pieces[by_i][PieceType::Pawn.index()];
         attackers |= tables::knight_attacks(sq.0) & self.pieces[by_i][PieceType::Knight.index()];
         attackers |= tables::king_attacks(sq.0) & self.pieces[by_i][PieceType::King.index()];
 
-        let bishops_queens =
-            self.pieces[by_i][PieceType::Bishop.index()] | self.pieces[by_i][PieceType::Queen.index()];
-        let rooks_queens =
-            self.pieces[by_i][PieceType::Rook.index()] | self.pieces[by_i][PieceType::Queen.index()];
+        let bishops_queens = self.pieces[by_i][PieceType::Bishop.index()]
+            | self.pieces[by_i][PieceType::Queen.index()];
+        let rooks_queens = self.pieces[by_i][PieceType::Rook.index()]
+            | self.pieces[by_i][PieceType::Queen.index()];
         attackers |= tables::bishop_attacks(sq.0, occ) & bishops_queens;
         attackers |= tables::rook_attacks(sq.0, occ) & rooks_queens;
 
@@ -292,7 +377,10 @@ impl Position {
         let from = m.from();
         let to = m.to();
         let piece = self.mailbox[from.index()];
-        debug_assert!(piece.is_some() && piece.color() == us, "moving from empty or wrong-color square");
+        debug_assert!(
+            piece.is_some() && piece.color() == us,
+            "moving from empty or wrong-color square"
+        );
         let pt = piece.piece_type();
 
         // Snapshot state the undo record and zobrist delta need.
@@ -362,13 +450,23 @@ impl Position {
             }
         }
 
-        // New EP square: only set on a double pawn push.
+        // New EP square: only set on a double pawn push *when the capture
+        // is fully legal for the opponent* (X-FEN 2020 / chess.js
+        // convention). `ep_capture_is_legal_for` does the pseudo-legal
+        // filter plus a rank-discovered-check simulation; it returns
+        // false instantly when no pseudo-legal capturer exists (the
+        // common case), so the amortised cost is negligible. Storing the
+        // legality in `ep_square` lets `movegen.rs` skip its own EP
+        // analysis on subsequent visits — a net perft win for positions
+        // visited repeatedly during search.
         let mut new_ep = None;
         if pt == PieceType::Pawn {
             let diff = to.0 as i32 - from.0 as i32;
             if diff == 16 || diff == -16 {
                 let ep_sq = Square((from.0 as i32 + diff / 2) as u8);
-                new_ep = Some(ep_sq);
+                if self.ep_capture_is_legal_for(ep_sq, them) {
+                    new_ep = Some(ep_sq);
+                }
             }
         }
         self.ep_square = new_ep;
@@ -472,14 +570,16 @@ impl Position {
             }
         }
 
-        // New EP square — only on a double pawn push. Same rule as
-        // `make_move`, without the hash update.
+        // New EP square — same full-legality rule as `make_move`, without
+        // the hash update. See `ep_capture_is_legal_for` for the rationale.
         let mut new_ep = None;
         if pt == PieceType::Pawn {
             let diff = to.0 as i32 - from.0 as i32;
             if diff == 16 || diff == -16 {
                 let ep_sq = Square((from.0 as i32 + diff / 2) as u8);
-                new_ep = Some(ep_sq);
+                if self.ep_capture_is_legal_for(ep_sq, them) {
+                    new_ep = Some(ep_sq);
+                }
             }
         }
         self.ep_square = new_ep;
@@ -555,7 +655,10 @@ impl Position {
 
     pub fn unmake_move(&mut self, m: Move) {
         let undo = self.history.pop().expect("unmake with empty history");
-        let _ = self.history_hashes.pop().expect("history_hashes out of sync");
+        let _ = self
+            .history_hashes
+            .pop()
+            .expect("history_hashes out of sync");
         let them = self.side_to_move;
         let us = them.opponent();
         let from = m.from();
@@ -654,8 +757,8 @@ impl Position {
         let b_minors = (b_knights | b_bishops).count_ones();
         let total = w_minors + b_minors;
         match total {
-            0 => true,              // K vs K
-            1 => true,              // K + single minor vs K
+            0 => true, // K vs K
+            1 => true, // K + single minor vs K
             2 => {
                 // Only the two-bishops-same-color case.
                 if w_knights != 0 || b_knights != 0 {
@@ -804,7 +907,9 @@ mod tests {
         p.make_move(m);
         p.assert_invariants();
         assert_eq!(p.side_to_move, Color::Black);
-        assert_eq!(p.ep_square, Some(Square::E3));
+        // X-FEN 2020: ep_square is only set when a pawn can actually capture.
+        // At startpos+1.e4 there are no black pawns on d4 / f4, so ep = None.
+        assert_eq!(p.ep_square, None);
         assert!(p.piece_at(Square::E2).is_none());
         assert_eq!(
             p.piece_at(Square::E4),
@@ -844,8 +949,14 @@ mod tests {
         let mut p = crate::fen::parse_fen(fen).unwrap();
         let m = Move::castle(Square::E1, Square::G1);
         p.make_move(m);
-        assert_eq!(p.piece_at(Square::G1), Piece::new(Color::White, PieceType::King));
-        assert_eq!(p.piece_at(Square::F1), Piece::new(Color::White, PieceType::Rook));
+        assert_eq!(
+            p.piece_at(Square::G1),
+            Piece::new(Color::White, PieceType::King)
+        );
+        assert_eq!(
+            p.piece_at(Square::F1),
+            Piece::new(Color::White, PieceType::Rook)
+        );
         assert!(!p.castling.white_kingside());
         assert!(!p.castling.white_queenside());
         // Black still has rights.

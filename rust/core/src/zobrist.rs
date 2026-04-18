@@ -169,8 +169,12 @@ mod tests {
                 }
             }
         }
-        for i in 0..16 { assert!(seen.insert(KEYS.castling[i])); }
-        for f in 0..8 { assert!(seen.insert(KEYS.ep_file[f])); }
+        for i in 0..16 {
+            assert!(seen.insert(KEYS.castling[i]));
+        }
+        for f in 0..8 {
+            assert!(seen.insert(KEYS.ep_file[f]));
+        }
         assert!(seen.insert(KEYS.side));
         // 768 + 16 + 8 + 1 = 793 distinct 64-bit keys.
         assert_eq!(seen.len(), 768 + 16 + 8 + 1);
@@ -247,7 +251,10 @@ mod tests {
         // Exercise splitmix64 directly.
         let (a, state) = splitmix64(0xDEAD_BEEF);
         let (b, _) = splitmix64(state);
-        assert_ne!(a, b, "splitmix64 should produce different values on successive calls");
+        assert_ne!(
+            a, b,
+            "splitmix64 should produce different values on successive calls"
+        );
     }
 
     #[test]
@@ -255,38 +262,31 @@ mod tests {
         use crate::fen::parse_fen;
 
         // White-to-move plain startpos.
-        let white_stm = parse_fen(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        )
-        .unwrap();
+        let white_stm =
+            parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1").unwrap();
 
         // Black-to-move flips the side key.
-        let black_stm = parse_fen(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
-        )
-        .unwrap();
+        let black_stm =
+            parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1").unwrap();
         assert_eq!(
             white_stm.hash() ^ side_to_move(),
             black_stm.hash(),
             "flipping side-to-move must XOR in the side key"
         );
 
-        // Adding an en-passant square flips the ep-file key.
-        let with_ep = parse_fen(
-            "rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq e6 0 2",
-        )
-        .unwrap();
-        let without_ep = parse_fen(
-            "rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 2",
-        )
-        .unwrap();
+        // Adding a capturable en-passant square flips the ep-file key.
+        // (Under X-FEN 2020, only capturable ep gets hashed — pairing with
+        // a position that matches except for a white pawn on d5 that could
+        // take on e6.)
+        let with_ep =
+            parse_fen("rnbqkbnr/ppp1pppp/8/3Pp3/8/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2").unwrap();
+        let without_ep =
+            parse_fen("rnbqkbnr/ppp1pppp/8/3Pp3/8/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2").unwrap();
         assert_eq!(with_ep.hash() ^ ep_file(4), without_ep.hash());
 
         // Changing castling rights flips the castling key.
-        let no_castling = parse_fen(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
-        )
-        .unwrap();
+        let no_castling =
+            parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1").unwrap();
         assert_eq!(
             white_stm.hash() ^ castling(0b1111) ^ castling(0),
             no_castling.hash()

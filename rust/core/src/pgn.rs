@@ -18,11 +18,12 @@ use core::fmt;
 // AST
 // --------------------------------------------------------------------------
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum Termination {
     WhiteWon,
     BlackWon,
     Draw,
+    #[default]
     Unknown,
 }
 
@@ -58,15 +59,11 @@ pub struct Game {
     pub termination: Termination,
 }
 
-impl Default for Termination {
-    fn default() -> Self {
-        Termination::Unknown
-    }
-}
-
 impl Game {
     pub fn header(&self, key: &str) -> Option<&str> {
-        self.headers.iter().find_map(|(k, v)| if k == key { Some(v.as_str()) } else { None })
+        self.headers
+            .iter()
+            .find_map(|(k, v)| if k == key { Some(v.as_str()) } else { None })
     }
 
     pub fn set_header(&mut self, key: impl Into<String>, value: impl Into<String>) {
@@ -90,7 +87,11 @@ pub enum PgnError {
     UnclosedComment,
     UnclosedHeader,
     UnclosedVariation,
-    MoveError { san: String, ply: usize, reason: String },
+    MoveError {
+        san: String,
+        ply: usize,
+        reason: String,
+    },
 }
 
 impl fmt::Display for PgnError {
@@ -118,7 +119,10 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(s: &'a str) -> Self {
-        Self { s: s.as_bytes(), i: 0 }
+        Self {
+            s: s.as_bytes(),
+            i: 0,
+        }
     }
 
     fn eof(&self) -> bool {
@@ -157,7 +161,7 @@ impl<'a> Parser<'a> {
                 break;
             }
             self.i += 1; // consume '['
-            // Key (alphanumeric).
+                         // Key (alphanumeric).
             let key_start = self.i;
             while let Some(c) = self.peek() {
                 if c.is_ascii_alphanumeric() || c == b'_' {
@@ -166,10 +170,9 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            let key =
-                core::str::from_utf8(&self.s[key_start..self.i])
-                    .map_err(|_| PgnError::Syntax("non-UTF8 header key".into()))?
-                    .to_string();
+            let key = core::str::from_utf8(&self.s[key_start..self.i])
+                .map_err(|_| PgnError::Syntax("non-UTF8 header key".into()))?
+                .to_string();
             // Whitespace, then '"value"'.
             self.skip_whitespace_and_line_comments();
             if self.peek() != Some(b'"') {
@@ -248,9 +251,7 @@ impl<'a> Parser<'a> {
                     if let Some(last) = nodes.last_mut() {
                         last.variations.push(var);
                     } else {
-                        return Err(PgnError::Syntax(
-                            "variation `(` before any move".into(),
-                        ));
+                        return Err(PgnError::Syntax("variation `(` before any move".into()));
                     }
                 }
                 b')' => {
@@ -288,11 +289,11 @@ impl<'a> Parser<'a> {
                     if san.is_empty() {
                         continue;
                     }
-                    let mut node = MoveNode::default();
-                    node.san = san.to_string();
-                    if let Some(comment) = pending_comment.take() {
-                        node.comment_before = Some(comment);
-                    }
+                    let node = MoveNode {
+                        san: san.to_string(),
+                        comment_before: pending_comment.take(),
+                        ..MoveNode::default()
+                    };
                     nodes.push(node);
                 }
             }
@@ -349,7 +350,9 @@ impl<'a> Parser<'a> {
             }
             self.i += 1;
         }
-        core::str::from_utf8(&self.s[start..self.i]).unwrap_or("").to_string()
+        core::str::from_utf8(&self.s[start..self.i])
+            .unwrap_or("")
+            .to_string()
     }
 }
 
@@ -388,7 +391,10 @@ fn strip_fused_number(tok: &str) -> &str {
     // of "." and trim through it.
     if let Some(dot_end) = tok.rfind('.') {
         // All chars up to dot_end must be digits or dots.
-        if tok[..dot_end].chars().all(|c| c.is_ascii_digit() || c == '.') {
+        if tok[..dot_end]
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.')
+        {
             return &tok[dot_end + 1..];
         }
     }
@@ -442,7 +448,8 @@ pub fn parse_pgn_many(s: &str) -> Result<Vec<Game>, PgnError> {
 /// Any illegal SAN → error with ply index for diagnostics.
 pub fn replay(game: &Game) -> Result<Vec<crate::chess_move::Move>, PgnError> {
     let mut pos = if let Some(fen) = game.header("FEN") {
-        crate::fen::parse_fen(fen).map_err(|e| PgnError::Syntax(format!("bad FEN header: {e:?}")))?
+        crate::fen::parse_fen(fen)
+            .map_err(|e| PgnError::Syntax(format!("bad FEN header: {e:?}")))?
     } else {
         Position::startpos()
     };
@@ -516,7 +523,9 @@ pub fn write_pgn(game: &Game) -> String {
         }
         if white_to_move {
             push_token(&mut line, &mut out, &format!("{move_number}."));
-        } else if node.comment_before.is_some() || node as *const _ == game.mainline.first().unwrap() as *const _ {
+        } else if node.comment_before.is_some()
+            || std::ptr::eq(node, game.mainline.first().unwrap())
+        {
             // Ellipsis after header-comment or at start of black's turn.
             push_token(&mut line, &mut out, &format!("{move_number}..."));
         }
@@ -613,13 +622,19 @@ mod tests {
         assert_eq!(game.termination, Termination::Unknown);
         assert_eq!(game.mainline.len(), 4);
         assert_eq!(game.mainline[0].san, "e4");
-        assert_eq!(game.mainline[0].comment_after.as_deref(), Some("strong opening"));
+        assert_eq!(
+            game.mainline[0].comment_after.as_deref(),
+            Some("strong opening")
+        );
         assert_eq!(game.mainline[1].san, "e5");
         assert_eq!(game.mainline[1].nags, vec![14]);
         assert_eq!(game.mainline[1].variations.len(), 1);
         assert_eq!(game.mainline[1].variations[0].len(), 2);
         assert_eq!(game.mainline[1].variations[0][0].san, "c5");
-        assert_eq!(game.mainline[1].variations[0][0].comment_after.as_deref(), Some("Sicilian"));
+        assert_eq!(
+            game.mainline[1].variations[0][0].comment_after.as_deref(),
+            Some("Sicilian")
+        );
     }
 
     #[test]
@@ -716,19 +731,28 @@ mod tests {
     #[test]
     fn unclosed_comment_errors() {
         let pgn = "1. e4 { never closed\n";
-        assert!(matches!(parse_pgn(pgn).unwrap_err(), PgnError::UnclosedComment));
+        assert!(matches!(
+            parse_pgn(pgn).unwrap_err(),
+            PgnError::UnclosedComment
+        ));
     }
 
     #[test]
     fn unclosed_header_errors() {
         let pgn = "[Event \"Half quoted\n\n1. e4 *";
-        assert!(matches!(parse_pgn(pgn).unwrap_err(), PgnError::UnclosedHeader));
+        assert!(matches!(
+            parse_pgn(pgn).unwrap_err(),
+            PgnError::UnclosedHeader
+        ));
     }
 
     #[test]
     fn unclosed_variation_errors() {
         let pgn = "1. e4 (1... c5 *\n";
-        assert!(matches!(parse_pgn(pgn).unwrap_err(), PgnError::UnclosedVariation));
+        assert!(matches!(
+            parse_pgn(pgn).unwrap_err(),
+            PgnError::UnclosedVariation
+        ));
     }
 
     #[test]
@@ -802,8 +826,15 @@ mod tests {
         // Round-trip through the parser again.
         let reparsed = parse_pgn(&out).unwrap();
         assert_eq!(
-            reparsed.mainline.iter().map(|n| n.san.as_str()).collect::<Vec<_>>(),
-            game.mainline.iter().map(|n| n.san.as_str()).collect::<Vec<_>>()
+            reparsed
+                .mainline
+                .iter()
+                .map(|n| n.san.as_str())
+                .collect::<Vec<_>>(),
+            game.mainline
+                .iter()
+                .map(|n| n.san.as_str())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -863,11 +894,11 @@ mod tests {
     fn is_move_number_edge_cases() {
         assert!(is_move_number("1."));
         assert!(is_move_number("123..."));
-        assert!(!is_move_number("1"));       // digits only, no dot
-        assert!(!is_move_number(".1"));      // leading dot
+        assert!(!is_move_number("1")); // digits only, no dot
+        assert!(!is_move_number(".1")); // leading dot
         assert!(!is_move_number("Nf3"));
         assert!(!is_move_number(""));
-        assert!(!is_move_number("1.e4"));    // dots must be trailing
+        assert!(!is_move_number("1.e4")); // dots must be trailing
     }
 
     #[test]

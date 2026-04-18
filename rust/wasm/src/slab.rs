@@ -33,7 +33,10 @@ pub struct Slab<T> {
 
 impl<T> Slab<T> {
     pub const fn new() -> Self {
-        Self { entries: Vec::new(), free: Vec::new() }
+        Self {
+            entries: Vec::new(),
+            free: Vec::new(),
+        }
     }
 
     /// Insert and return an opaque handle.
@@ -49,7 +52,10 @@ impl<T> Slab<T> {
                 // Index overflow — realistically unreachable (16M).
                 return HANDLE_INVALID;
             }
-            self.entries.push(Entry { value: Some(value), generation: 0 });
+            self.entries.push(Entry {
+                value: Some(value),
+                generation: 0,
+            });
             idx & INDEX_MASK // generation = 0
         }
     }
@@ -57,7 +63,9 @@ impl<T> Slab<T> {
     /// Free a handle. Returns `true` if the handle was valid.
     pub fn free(&mut self, handle: u32) -> bool {
         let (idx, gen) = decode(handle);
-        let Some(e) = self.entries.get_mut(idx as usize) else { return false };
+        let Some(e) = self.entries.get_mut(idx as usize) else {
+            return false;
+        };
         if e.generation != gen || e.value.is_none() {
             return false;
         }

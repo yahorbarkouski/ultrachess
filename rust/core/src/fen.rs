@@ -8,8 +8,7 @@ use crate::position::Position;
 use crate::types::{CastlingRights, Color, Piece, PieceType, Square};
 use core::fmt;
 
-pub const STARTING_FEN: &str =
-    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+pub const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FenError {
@@ -128,7 +127,9 @@ pub fn parse_fen(s: &str) -> Result<Position, FenError> {
 
     // Numbers.
     pos.halfmove = match halfmove_s {
-        Some(s) => s.parse::<u16>().map_err(|_| FenError::BadNumber("halfmove"))?,
+        Some(s) => s
+            .parse::<u16>()
+            .map_err(|_| FenError::BadNumber("halfmove"))?,
         None => 0,
     };
     pos.fullmove = match fullmove_s {
@@ -144,6 +145,17 @@ pub fn parse_fen(s: &str) -> Result<Position, FenError> {
     };
 
     validate(&pos)?;
+    // X-FEN 2020: the ep square is only meaningful when the capture is
+    // fully legal for the side to move. Downgrade to None otherwise so
+    // that `Position.ep_square.is_some() ⇒ legal EP exists` holds as an
+    // invariant across `parse_fen` / `make_move` / `make_move_perft`.
+    // The single authoritative check lives on `Position` to keep these
+    // three entry points from drifting.
+    if let Some(ep) = pos.ep_square {
+        if !pos.ep_capture_is_legal_for(ep, pos.side_to_move) {
+            pos.ep_square = None;
+        }
+    }
     // Zobrist + checkers are maintained incrementally thereafter; compute
     // each once here. Caching checkers up-front lets `in_check()` and
     // related API calls be O(1).
@@ -163,8 +175,8 @@ fn validate(pos: &Position) -> Result<(), FenError> {
         }
     }
     // No pawns on rank 1 or 8.
-    let pawn_mask = pos.piece_bb(Color::White, PieceType::Pawn)
-        | pos.piece_bb(Color::Black, PieceType::Pawn);
+    let pawn_mask =
+        pos.piece_bb(Color::White, PieceType::Pawn) | pos.piece_bb(Color::Black, PieceType::Pawn);
     if pawn_mask & (crate::bitboard::RANK_1 | crate::bitboard::RANK_8) != 0 {
         return Err(FenError::PawnOnBackRank);
     }
@@ -408,28 +420,27 @@ mod tests {
     #[test]
     fn bad_halfmove_or_fullmove_rejected() {
         // Halfmove must parse as u16.
-        let e = parse_fen(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - nope 1",
-        ).unwrap_err();
+        let e =
+            parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - nope 1").unwrap_err();
         assert!(matches!(e, FenError::BadNumber("halfmove")));
-        let e = parse_fen(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 nope",
-        ).unwrap_err();
+        let e =
+            parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 nope").unwrap_err();
         assert!(matches!(e, FenError::BadNumber("fullmove")));
     }
 
     #[test]
     fn fullmove_zero_is_tolerated_as_one() {
-        let p = parse_fen(
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0",
-        ).unwrap();
+        let p = parse_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0").unwrap();
         assert_eq!(p.fullmove, 1);
     }
 
     #[test]
     fn too_many_kings_rejected() {
         let fen = "rkbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1";
-        assert!(matches!(parse_fen(fen).unwrap_err(), FenError::TooManyKings(_)));
+        assert!(matches!(
+            parse_fen(fen).unwrap_err(),
+            FenError::TooManyKings(_)
+        ));
     }
 
     #[test]
@@ -472,9 +483,10 @@ mod tests {
 
     #[test]
     fn write_fen_emits_ep_square_when_set() {
-        let p = parse_fen(
-            "rnbqkbnr/pppp1ppp/8/4p3/8/8/PPPPPPPP/RNBQKBNR w KQkq e6 0 2",
-        ).unwrap();
+        // Capturable ep: white pawn on d5 can take on e6 after black's
+        // hypothetical e7-e5. Under X-FEN 2020 this is the case where
+        // `write_fen` emits the ep square.
+        let p = parse_fen("rnbqkbnr/ppp1pppp/8/3Pp3/8/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2").unwrap();
         assert!(write_fen(&p).contains(" e6 "));
     }
 }

@@ -23,9 +23,7 @@ use ultrachess_core::pgn::{parse_pgn, Termination};
 use ultrachess_core::san::{move_to_san, san_to_move};
 use ultrachess_core::types::{Color, Piece, PieceType, Square};
 
-use crate::slab::{
-    with_pgn, with_pgn_mut, with_positions, with_positions_mut, HANDLE_INVALID,
-};
+use crate::slab::{with_pgn, with_pgn_mut, with_positions, with_positions_mut, HANDLE_INVALID};
 
 // ABI version — bump on breaking changes.
 const ABI_VERSION: u32 = 2;
@@ -104,7 +102,9 @@ pub extern "C" fn ultrachess_new_startpos() -> u32 {
 #[no_mangle]
 pub unsafe extern "C" fn ultrachess_new_from_fen(fen_ptr: u32, fen_len: u32) -> u32 {
     let slice = unsafe { slice::from_raw_parts(fen_ptr as *const u8, fen_len as usize) };
-    let Ok(s) = core::str::from_utf8(slice) else { return HANDLE_INVALID };
+    let Ok(s) = core::str::from_utf8(slice) else {
+        return HANDLE_INVALID;
+    };
     match parse_fen(s) {
         Ok(p) => with_positions_mut(|slab| slab.alloc(p)),
         Err(_) => HANDLE_INVALID,
@@ -170,7 +170,10 @@ macro_rules! bool_query {
 bool_query!(ultrachess_in_check, in_check);
 bool_query!(ultrachess_is_checkmate, is_checkmate);
 bool_query!(ultrachess_is_stalemate, is_stalemate);
-bool_query!(ultrachess_is_insufficient_material, is_insufficient_material);
+bool_query!(
+    ultrachess_is_insufficient_material,
+    is_insufficient_material
+);
 bool_query!(ultrachess_is_threefold_repetition, is_threefold_repetition);
 bool_query!(ultrachess_is_fifty_move_rule, is_fifty_move_rule);
 bool_query!(ultrachess_is_draw, is_draw);
@@ -300,7 +303,9 @@ pub extern "C" fn ultrachess_put(handle: u32, piece_code: u32, sq: u32) -> u32 {
         return 254;
     }
     with_positions_mut(|s| {
-        let Some(p) = s.get_mut(handle) else { return 254 };
+        let Some(p) = s.get_mut(handle) else {
+            return 254;
+        };
         // Two-king invariant: disallow putting a king if one already exists
         // for that color (unless we're replacing it on the same square).
         let new_piece = Piece(piece_code as u8);
@@ -325,7 +330,9 @@ pub extern "C" fn ultrachess_remove(handle: u32, sq: u32) -> u32 {
         return 254;
     }
     with_positions_mut(|s| {
-        let Some(p) = s.get_mut(handle) else { return 254 };
+        let Some(p) = s.get_mut(handle) else {
+            return 254;
+        };
         match p.remove_at(Square(sq as u8)) {
             Some(removed) => removed.0 as u32,
             None => 255,
@@ -344,11 +351,7 @@ thread_local! {
 /// # Safety
 /// If `out_ptr != 0` it must point to `cap * 4` writable bytes.
 #[no_mangle]
-pub unsafe extern "C" fn ultrachess_generate_moves(
-    handle: u32,
-    out_ptr: u32,
-    cap: u32,
-) -> u32 {
+pub unsafe extern "C" fn ultrachess_generate_moves(handle: u32, out_ptr: u32, cap: u32) -> u32 {
     with_positions(|s| {
         let Some(p) = s.get(handle) else { return 0 };
         SHARED_MOVE_LIST.with(|ml| {
@@ -456,13 +459,11 @@ pub unsafe extern "C" fn ultrachess_san_write(
 /// # Safety
 /// `utf8_ptr` + `utf8_len` must be a valid UTF-8 byte slice.
 #[no_mangle]
-pub unsafe extern "C" fn ultrachess_san_parse(
-    handle: u32,
-    utf8_ptr: u32,
-    utf8_len: u32,
-) -> u32 {
+pub unsafe extern "C" fn ultrachess_san_parse(handle: u32, utf8_ptr: u32, utf8_len: u32) -> u32 {
     let slice = unsafe { slice::from_raw_parts(utf8_ptr as *const u8, utf8_len as usize) };
-    let Ok(san) = core::str::from_utf8(slice) else { return u32::MAX };
+    let Ok(san) = core::str::from_utf8(slice) else {
+        return u32::MAX;
+    };
     with_positions(|s| match s.get(handle) {
         Some(p) => match san_to_move(p, san) {
             Ok(m) => m.0 as u32,
@@ -498,7 +499,9 @@ pub unsafe extern "C" fn ultrachess_ascii_write(handle: u32, out_ptr: u32, cap: 
 #[no_mangle]
 pub unsafe extern "C" fn ultrachess_pgn_parse(pgn_ptr: u32, pgn_len: u32) -> u32 {
     let slice = unsafe { slice::from_raw_parts(pgn_ptr as *const u8, pgn_len as usize) };
-    let Ok(s) = core::str::from_utf8(slice) else { return HANDLE_INVALID };
+    let Ok(s) = core::str::from_utf8(slice) else {
+        return HANDLE_INVALID;
+    };
     match parse_pgn(s) {
         Ok(game) => with_pgn_mut(|slab| slab.alloc(game)),
         Err(_) => HANDLE_INVALID,
@@ -528,7 +531,9 @@ pub unsafe extern "C" fn ultrachess_pgn_header_key(
 ) -> u32 {
     with_pgn(|s| {
         let Some(g) = s.get(handle) else { return 0 };
-        let Some((k, _)) = g.headers.get(idx as usize) else { return 0 };
+        let Some((k, _)) = g.headers.get(idx as usize) else {
+            return 0;
+        };
         unsafe { write_bytes_to_scratch(k.as_bytes(), out_ptr, cap) }
     })
 }
@@ -546,7 +551,9 @@ pub unsafe extern "C" fn ultrachess_pgn_header_value(
 ) -> u32 {
     with_pgn(|s| {
         let Some(g) = s.get(handle) else { return 0 };
-        let Some((_, v)) = g.headers.get(idx as usize) else { return 0 };
+        let Some((_, v)) = g.headers.get(idx as usize) else {
+            return 0;
+        };
         unsafe { write_bytes_to_scratch(v.as_bytes(), out_ptr, cap) }
     })
 }
@@ -569,7 +576,9 @@ pub unsafe extern "C" fn ultrachess_pgn_mainline_san(
 ) -> u32 {
     with_pgn(|s| {
         let Some(g) = s.get(handle) else { return 0 };
-        let Some(node) = g.mainline.get(idx as usize) else { return 0 };
+        let Some(node) = g.mainline.get(idx as usize) else {
+            return 0;
+        };
         unsafe { write_bytes_to_scratch(node.san.as_bytes(), out_ptr, cap) }
     })
 }

@@ -1,38 +1,37 @@
-//! Public entry for ultrachessjs.
-
-export {
-  init,
-  AbiVersionMismatchError,
-  EXPECTED_ABI_VERSION,
-  type UltrachessAbi,
-} from "./loader.js";
+//! Public entry for ultrachess.
 
 export {
   Chess,
-  STARTING_FEN,
   DisposedError,
   IllegalMoveError,
   InvalidFenError,
   InvalidPgnError,
+  STARTING_FEN,
 } from "./chess.js";
+export {
+  AbiVersionMismatchError,
+  EXPECTED_ABI_VERSION,
+  init,
+  type UltrachessAbi,
+} from "./loader.js";
 
 export {
   Color,
-  MoveKind,
-  PieceType,
-  type Move,
-  type Piece,
-  type VerboseMove,
-  moveFrom,
-  moveTo,
-  moveKind,
-  movePromotion,
-  moveToUci,
-  squareName,
-  parseSquare,
   decodePiece,
   encodePiece,
+  type Move,
+  MoveKind,
+  moveFrom,
+  moveKind,
+  movePromotion,
+  moveTo,
+  moveToUci,
+  type Piece,
+  PieceType,
+  parseSquare,
   pieceChar,
+  squareName,
+  type VerboseMove,
 } from "./move.js";
 
 import { init } from "./loader.js";

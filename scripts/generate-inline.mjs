@@ -8,7 +8,7 @@
 // for synchronous instantiation that works in every runtime without
 // top-level await or file I/O.
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,6 +37,4 @@ const body =
 
 await mkdir(dirname(outPath), { recursive: true });
 await writeFile(outPath, body, "utf8");
-console.log(
-  `wrote ${outPath} (${bytes.length} bytes → ${base64.length} base64 chars)`,
-);
+console.log(`wrote ${outPath} (${bytes.length} bytes → ${base64.length} base64 chars)`);

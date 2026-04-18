@@ -30,7 +30,10 @@ fn roundtrip_tree(pos: &mut Position, depth: u32) {
                 ultrachess_core::fen::write_fen(pos)
             )
         });
-        assert_eq!(parsed.0, m.0, "roundtrip: move={m:?} san={san:?} parsed={parsed:?}");
+        assert_eq!(
+            parsed.0, m.0,
+            "roundtrip: move={m:?} san={san:?} parsed={parsed:?}"
+        );
         if depth > 1 {
             pos.make_move(m);
             roundtrip_tree(pos, depth - 1);

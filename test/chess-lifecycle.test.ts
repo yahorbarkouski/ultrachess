@@ -53,13 +53,18 @@ describe("Chess — lifecycle", () => {
     expect(a.fen()).toBe(STARTING_FEN);
   });
 
-  it("clone preserves move history so undo works on the copy", async () => {
+  it("clone is a fresh snapshot — same FEN, empty history", async () => {
+    // Matches the Position::clone contract in the Rust core (see
+    // rust/core/src/position.rs: "clone produces a fresh position with
+    // empty history"). Consumers who want a full history copy play through
+    // the moves themselves; the design here saves a heap copy per clone
+    // and mirrors `new Chess(other.fen())`.
     using a = await Chess.create();
     a.move("e4");
     using b = a.clone();
-    expect(b.history()).toHaveLength(1);
-    b.undo();
-    expect(b.fen()).toBe(STARTING_FEN);
+    expect(b.fen()).toBe(a.fen());
+    expect(b.history()).toHaveLength(0);
+    expect(b.undo()).toBeNull();
   });
 
   it("clone after dispose throws", async () => {

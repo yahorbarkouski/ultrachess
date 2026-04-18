@@ -8,7 +8,6 @@ use common::STARTING_FEN;
 use ultrachess_core::chess_move::{Move, MoveKind};
 use ultrachess_core::fen::parse_fen;
 use ultrachess_core::movegen::{generate_legal_moves, MoveList};
-use ultrachess_core::position::Position;
 use ultrachess_core::{Color, Piece, PieceType, Square};
 
 #[test]
@@ -116,10 +115,8 @@ fn perft_variant_produces_same_mailbox_state_for_every_move() {
 #[test]
 fn perft_variant_handles_every_move_kind() {
     // Exercise Normal, Promotion, EnPassant, Castle via make_move_perft.
-    let kiwipete = parse_fen(
-        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-    )
-    .unwrap();
+    let kiwipete =
+        parse_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1").unwrap();
     let mut p = kiwipete.clone();
     let mut ml = MoveList::new();
     generate_legal_moves(&p, &mut ml);

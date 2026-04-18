@@ -25,9 +25,9 @@ describe("Chess — move generation + make/undo", () => {
 
   it("decodes a packed move into from/to/kind", async () => {
     using chess = await Chess.create();
-    const e4 = chess.legalMoves().find(
-      (m) => squareName(moveFrom(m)) === "e2" && squareName(moveTo(m)) === "e4",
-    )!;
+    const e4 = chess
+      .legalMoves()
+      .find((m) => squareName(moveFrom(m)) === "e2" && squareName(moveTo(m)) === "e4")!;
     expect(e4).toBeDefined();
     expect(moveKind(e4)).toBe(MoveKind.Normal);
   });

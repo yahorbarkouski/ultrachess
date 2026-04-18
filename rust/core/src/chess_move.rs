@@ -1,11 +1,10 @@
 //! Packed 16-bit move encoding.
 //!
 //! Layout (LSB-first):
-//! - bits  0..=5  : from-square (0..64)
-//! - bits  6..=11 : to-square   (0..64)
-//! - bits 12..=13 : promotion piece (00=N, 01=B, 10=R, 11=Q)
-//! - bits 14..=15 : move kind      (00=normal, 01=promotion, 10=en-passant,
-//!                                  11=castling)
+//! - bits 0..=5:   from-square (0..64)
+//! - bits 6..=11:  to-square (0..64)
+//! - bits 12..=13: promotion piece (00=N, 01=B, 10=R, 11=Q)
+//! - bits 14..=15: move kind (00=normal, 01=promotion, 10=en-passant, 11=castling)
 //!
 //! "Capture" is *not* stored — it is recovered from the destination mailbox.
 
@@ -56,12 +55,7 @@ impl Move {
             PieceType::Queen => 3,
             _ => 0, // unused unless kind == Promotion
         };
-        Self(
-            (from.0 as u16)
-                | ((to.0 as u16) << 6)
-                | (promo_bits << 12)
-                | ((kind as u16) << 14),
-        )
+        Self((from.0 as u16) | ((to.0 as u16) << 6) | (promo_bits << 12) | ((kind as u16) << 14))
     }
 
     #[inline(always)]
@@ -145,6 +139,21 @@ impl fmt::Display for Move {
     }
 }
 
+// Shorthand constants so tests can write `Square::E2` without importing.
+impl Square {
+    pub const A2: Self = Self(8);
+    pub const D2: Self = Self(11);
+    pub const E2: Self = Self(12);
+    pub const E3: Self = Self(20);
+    pub const E4: Self = Self(28);
+    pub const D4: Self = Self(27);
+    pub const E5: Self = Self(36);
+    pub const D5: Self = Self(35);
+    pub const F6: Self = Self(45);
+    pub const E7: Self = Self(52);
+    pub const A7: Self = Self(48);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,8 +223,14 @@ mod tests {
     fn every_move_kind_decodes() {
         let kinds = [
             (MoveKind::Normal, Move::quiet(Square::E2, Square::E4)),
-            (MoveKind::Promotion, Move::promotion(Square::E7, Square::E8, PieceType::Queen)),
-            (MoveKind::EnPassant, Move::en_passant(Square::E5, Square::F6)),
+            (
+                MoveKind::Promotion,
+                Move::promotion(Square::E7, Square::E8, PieceType::Queen),
+            ),
+            (
+                MoveKind::EnPassant,
+                Move::en_passant(Square::E5, Square::F6),
+            ),
             (MoveKind::Castle, Move::castle(Square::E1, Square::G1)),
         ];
         for (expected, m) in kinds {
@@ -234,19 +249,4 @@ mod tests {
         set.insert(a);
         assert!(set.contains(&b));
     }
-}
-
-// Shorthand constants so tests can write `Square::E2` without importing.
-impl Square {
-    pub const A2: Self = Self(8);
-    pub const D2: Self = Self(11);
-    pub const E2: Self = Self(12);
-    pub const E3: Self = Self(20);
-    pub const E4: Self = Self(28);
-    pub const D4: Self = Self(27);
-    pub const E5: Self = Self(36);
-    pub const D5: Self = Self(35);
-    pub const F6: Self = Self(45);
-    pub const E7: Self = Self(52);
-    pub const A7: Self = Self(48);
 }

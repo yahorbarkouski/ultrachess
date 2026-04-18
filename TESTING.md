@@ -128,9 +128,36 @@ test/
 ├── pgn.test.ts                  # loadPgn / pgn / headers
 ├── inline.test.ts               # sync entry via ultrachess/inline
 ├── perft.test.ts                # perft matrix across reference positions
+├── differential/
+│   └── vs-chess-js.test.ts      # chess.js lock-step fuzz (see below)
 └── cross-runtime/
     └── bun-smoke.mjs            # standalone scripts runnable under Bun / Node
 ```
+
+### Differential fuzz
+
+`test/differential/` holds lock-step correctness oracles — second-opinion
+engines that must agree with ours on every semantic field after each ply
+of a random legal game.
+
+Currently only `vs-chess-js.test.ts` (oracle: [chess.js](https://github.com/jhlywa/chess.js)).
+On every ply the harness asserts:
+
+- `fen()` byte-identical
+- legal-move set (SAN strings) equal as sorted sets
+- `inCheck` / `isCheckmate` / `isStalemate` / `isDraw` and components agree
+
+Tiers, exposed via environment variable:
+
+| Command                      | Games   | Runtime   | Purpose                       |
+|------------------------------|---------|-----------|-------------------------------|
+| (default `just test-ts`)     | 200     | ~7 s      | PR gate                       |
+| `just test-diff-10k`         | 10 000  | ~5 min    | Nightly                       |
+| `just test-diff-100k`        | 100 000 | ~55 min   | Pre-RC release gate           |
+
+Divergences fail the test with a formatted report — seed, ply, FEN before
+the diverging move, both values, and full move history — so any bug is
+reproducible by replaying the seed.
 
 ### Naming
 

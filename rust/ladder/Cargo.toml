@@ -2,14 +2,14 @@
 name = "ultrachess-ladder"
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.95"
 license = "MIT"
 publish = false
 description = "Pedagogical micro-benchmarks paired with docs/movegen-ladder.md. Each bench compares the current ultrachess-core code against an intentionally-regressed implementation of an earlier rung on the optimization ladder."
 
 [dependencies]
 ultrachess-core = { path = "../core" }
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [profile.release]
 opt-level = 3

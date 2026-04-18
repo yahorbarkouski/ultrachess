@@ -289,7 +289,10 @@ mod tests {
 
     #[test]
     fn square_parse() {
-        assert_eq!(Square::parse_ascii(b"e4"), Some(Square::from_file_rank(4, 3)));
+        assert_eq!(
+            Square::parse_ascii(b"e4"),
+            Some(Square::from_file_rank(4, 3))
+        );
         assert_eq!(Square::parse_ascii(b"a1"), Some(Square::A1));
         assert_eq!(Square::parse_ascii(b"h8"), Some(Square::H8));
         assert_eq!(Square::parse_ascii(b""), None);

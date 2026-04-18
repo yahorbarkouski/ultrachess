@@ -22,8 +22,12 @@ fn snapshot(p: &Position) -> Vec<u8> {
     for c in [Color::White, Color::Black] {
         v.extend(&p.color_bb(c).to_le_bytes());
         for pt in [
-            PieceType::Pawn, PieceType::Knight, PieceType::Bishop,
-            PieceType::Rook, PieceType::Queen, PieceType::King,
+            PieceType::Pawn,
+            PieceType::Knight,
+            PieceType::Bishop,
+            PieceType::Rook,
+            PieceType::Queen,
+            PieceType::King,
         ] {
             v.extend(&p.piece_bb(c, pt).to_le_bytes());
         }

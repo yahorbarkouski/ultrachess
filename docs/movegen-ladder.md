@@ -3,7 +3,7 @@
 **45 levels, from the obvious way to beating shakmaty and cozy-chess.**
 
 This document walks the full optimization history of legal move generation
-in `ultrachessjs`. It's written for engineers who have never written a
+in `ultrachess`. It's written for engineers who have never written a
 chess program, but it doesn't hide the tricks.
 
 It covers **fully-legal move generation and everything it directly feeds**:
@@ -626,7 +626,7 @@ Run:
 cargo bench -p ultrachess-ladder
 ```
 
-Numbers are Apple M4 Max, `rustc 1.87.0`, single-threaded. Your
+Numbers are Apple M4 Max, `rustc 1.95.0`, single-threaded. Your
 hardware will differ; the *ratios* are the point.
 
 ---

@@ -9,14 +9,14 @@
 
 export type Move = number & { readonly __brand: unique symbol };
 
-export const enum MoveKind {
+export enum MoveKind {
   Normal = 0,
   Promotion = 1,
   EnPassant = 2,
   Castle = 3,
 }
 
-export const enum PieceType {
+export enum PieceType {
   Pawn = 0,
   Knight = 1,
   Bishop = 2,
@@ -25,7 +25,7 @@ export const enum PieceType {
   King = 5,
 }
 
-export const enum Color {
+export enum Color {
   White = 0,
   Black = 1,
 }
