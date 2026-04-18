@@ -14,7 +14,11 @@ on:
 
 env:
   RUST_TOOLCHAIN: "1.95"
-  NODE_VERSION: "20"
+  # Node 22 ships npm 10.9+; we then upgrade to npm@latest below so
+  # Trusted Publishing's OIDC handshake lands on a supported path.
+  # Older npm versions (10.x) silently fall back to anonymous PUT and
+  # return 404 even when the Trusted Publisher is correctly configured.
+  NODE_VERSION: "22"
 
 jobs:
   publish:
@@ -48,6 +52,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: "https://registry.npmjs.org"
           cache: npm
+
+      # Ensure npm has full Trusted Publishing OIDC support.
+      - name: Upgrade npm to latest
+        run: npm install -g npm@latest
 
       - run: npm ci
 
