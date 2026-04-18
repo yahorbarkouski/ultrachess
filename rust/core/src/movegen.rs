@@ -318,25 +318,21 @@ fn enemy_attacks(pos: &Position, us: Color, occ: Bitboard) -> Bitboard {
     let them = us.opponent();
     let mut attacks: Bitboard = 0;
 
-    // Pawns — bit-parallel pawn attack computation.
+    // Pawns — bit-parallel, one shift per diagonal.
     let pawns = pos.piece_bb(them, PieceType::Pawn);
     attacks |= match them {
         Color::White => bitboard::north_east(pawns) | bitboard::north_west(pawns),
         Color::Black => bitboard::south_east(pawns) | bitboard::south_west(pawns),
     };
 
-    // Knights.
     let mut knights = pos.piece_bb(them, PieceType::Knight);
     while knights != 0 {
         let sq = pop_lsb(&mut knights);
         attacks |= tables::knight_attacks(sq.0);
     }
 
-    // King.
-    let king_sq = pos.king_sq(them);
-    attacks |= tables::king_attacks(king_sq.0);
+    attacks |= tables::king_attacks(pos.king_sq(them).0);
 
-    // Bishops + queens (diagonal).
     let mut bishops_queens =
         pos.piece_bb(them, PieceType::Bishop) | pos.piece_bb(them, PieceType::Queen);
     while bishops_queens != 0 {
@@ -344,7 +340,6 @@ fn enemy_attacks(pos: &Position, us: Color, occ: Bitboard) -> Bitboard {
         attacks |= tables::bishop_attacks(sq.0, occ);
     }
 
-    // Rooks + queens (orthogonal).
     let mut rooks_queens =
         pos.piece_bb(them, PieceType::Rook) | pos.piece_bb(them, PieceType::Queen);
     while rooks_queens != 0 {
@@ -476,16 +471,12 @@ fn emit_pawn_moves<S: MoveSink>(
     let pinned = pinned_hv | pinned_diag;
 
     // --- Single pushes ----------------------------------------------------
+    // Bulk-emit non-pinned pawns via shift; the pinned-pawn slow lane below
+    // filters per-move against `tables::line(king, from)`.
     let raw_single = match us {
         Color::White => bitboard::north(pawns),
         Color::Black => bitboard::south(pawns),
     } & empty;
-    // Pushes are blocked for *any* pinned pawn except HV-pinned pawns whose
-    // pin is along their own file (i.e. they move along the pin ray). The
-    // `tables::line(king, from) & to` test catches exactly that case.
-    //
-    // We still emit per-target from non-pinned pawns in bulk, and fall back
-    // to a per-pawn pin check only for the rare pinned ones.
     let single_targets = raw_single & check_mask;
 
     // --- Double pushes ----------------------------------------------------
@@ -513,9 +504,7 @@ fn emit_pawn_moves<S: MoveSink>(
     let cap_left_targets = cap_left_raw & check_mask;
     let cap_right_targets = cap_right_raw & check_mask;
 
-    // --- Emit. Splitting promo / non-promo once, then handling pinned
-    //     pawns via a small follow-up pass, is the fast path.
-    // --- Splits by promotion.
+    // Split each target bitboard into promo / non-promo once up front.
     let single_non_promo = single_targets & !promo_rank;
     let single_promo = single_targets & promo_rank;
     let cap_left_non_promo = cap_left_targets & !promo_rank;
@@ -524,7 +513,7 @@ fn emit_pawn_moves<S: MoveSink>(
     let cap_right_promo = cap_right_targets & promo_rank;
 
     if pinned == 0 {
-        // Fast path: no pinned pawns — just emit everything in bulk.
+        // Fast path: bulk emission, no pin check.
         sink.push_pawn_targets_offset(single_non_promo, push_dir);
         sink.push_pawn_promotions_offset(single_promo, push_dir);
         sink.push_pawn_targets_offset(double_targets, push_dir * 2);
@@ -533,9 +522,7 @@ fn emit_pawn_moves<S: MoveSink>(
         sink.push_pawn_targets_offset(cap_right_non_promo, cap_right_offset);
         sink.push_pawn_promotions_offset(cap_right_promo, cap_right_offset);
     } else {
-        // Split each target bitboard by whether `from` is pinned. Non-pinned
-        // targets emit in bulk; pinned targets go through a per-move
-        // pin-line filter (rare, so branch prediction handles it well).
+        // Split by pinned-from: bulk lane + per-move pin-line filter (rare).
         emit_pawn_class(sink, single_non_promo, push_dir, false, pinned, king_sq);
         emit_pawn_class(sink, single_promo, push_dir, true, pinned, king_sq);
         emit_pawn_class(sink, double_targets, push_dir * 2, false, pinned, king_sq);

@@ -1,38 +1,25 @@
 //! Fancy magic bitboards for bishop / rook attacks.
 //!
-//! # Why this module exists
-//! The classical-ray implementation in `tables.rs` does four (bishop) or four
-//! (rook) dependent loads per slider per query — trailing/leading-zeros +
-//! ray lookup + XOR — which is the hottest inner loop of perft. Magic
-//! bitboards collapse that to **one multiply + one shift + one indexed load**.
-//! On our M4 Max bench, replacing classical rays with magics is the single
-//! biggest lever: kiwipete slider positions ~2× their previous NPS.
+//! Replaces the classical-ray path (4 dependent loads per slider query)
+//! with one multiply + shift + indexed load — ~2× NPS on slider-heavy
+//! positions.
 //!
 //! # Layout
-//! "Fancy" magics: one shared attack table keyed by per-square
-//! `(offset, mask, magic, shift)`. Index formula:
+//! One shared attack table per slider type, keyed by per-square
+//! `(offset, mask, magic, shift)`:
 //!
 //! ```text
 //! attacks[entry.offset + ((occ & entry.mask).wrapping_mul(entry.magic) >> entry.shift)]
 //! ```
 //!
-//! We use **plain magics** (not black magics) for simplicity — the shift
-//! formula `64 - popcount(mask)` rather than a per-square variable shift.
-//! Total table size: bishop ≈ 5248 u64 (42 KiB) + rook ≈ 102400 u64
-//! (800 KiB). The rook table is lazy-allocated into heap on first use;
-//! this cost (~5-20 ms) is paid once per process and amortises away.
+//! Plain magics (shift = `64 - popcount(mask)`), not black magics. Tables
+//! total ≈842 KiB, lazy-allocated on first use (~5-20 ms one-shot cost).
 //!
-//! # Magic numbers: searched at init
-//! Rather than embedding a fixed magic number per square (which would require
-//! auditing 128 magic constants), we brute-force search at init with a
-//! deterministic, seeded RNG. Typical convergence: ~50-500 attempts per
-//! square; end-to-end init < 20 ms. The seed is fixed so two runs see the
-//! same magics — reproducibility matters for debuggability.
-//!
-//! # Correctness
-//! Behaviour must exactly match the classical path for every (sq, occ).
-//! `tests/magic.rs` exercises both paths against hundreds of thousands of
-//! random occupancies.
+//! # Magics
+//! Searched at init with a seeded RNG rather than embedded as constants,
+//! so we don't maintain 128 audited literals. Seed is fixed — same magics
+//! every run, for reproducibility. Correctness is gated by
+//! `tests/magic.rs` cross-checking against the classical path.
 
 use crate::bitboard::Bitboard;
 use std::sync::OnceLock;
@@ -44,10 +31,9 @@ pub fn bishop_attacks(sq: u8, occ: Bitboard) -> Bitboard {
     let t = tables();
     let e = &t.bishop[sq as usize];
     let idx = (((occ & e.mask).wrapping_mul(e.magic)) >> e.shift) as usize;
-    // Safety: bishop attack table is sized exactly `1 << (64 - shift)` per
-    // entry, and `idx` cannot exceed that by construction. We skip the bounds
-    // check because this is the hottest inner loop in all of perft; the
-    // invariant is verified end-to-end by the perft gate.
+    // SAFETY: `idx < 1 << (64 - e.shift)` by construction; bounds-check
+    // elided because this is the hottest loop in perft. Gated by the
+    // perft correctness tests.
     unsafe { *t.bishop_attacks.get_unchecked(e.offset as usize + idx) }
 }
 
@@ -71,7 +57,7 @@ struct MagicEntry {
     mask: u64,
     magic: u64,
     offset: u32,
-    shift: u32, // = 64 - popcount(mask)
+    shift: u32, // 64 - popcount(mask)
 }
 
 struct Tables {
@@ -85,13 +71,12 @@ static TABLES: OnceLock<Tables> = OnceLock::new();
 
 #[inline(always)]
 fn tables() -> &'static Tables {
-    // `get_or_init` is lock-free on the hot (initialised) path.
+    // Lock-free on the hot (initialised) path.
     TABLES.get_or_init(build_tables)
 }
 
-/// Force the magic tables to be initialised now. Useful if you want the
-/// init cost paid at a predictable point (e.g. at module load) rather than
-/// at first move generation.
+/// Force initialisation now. Use if you want the ~5-20 ms init cost paid
+/// at module load rather than at first move generation.
 pub fn init() {
     let _ = tables();
 }
@@ -186,20 +171,17 @@ fn find_magic(
     let mut attempt: u64 = 0;
     loop {
         attempt += 1;
-        // Sparse magics — ANDing three random u64s biases the population
-        // count down into the 10-20 range, which converges faster.
+        // Sparse candidates — AND-of-three biases popcount into 10-20, which
+        // converges much faster than uniform random.
         let m = rng.next() & rng.next() & rng.next();
-        // Weak heuristic from the chessprogramming wiki: the top-byte popcount
-        // of (mask * magic) should be ≥ 6 for the magic to have a chance.
+        // chessprogramming-wiki heuristic: top-byte popcount of (mask * magic)
+        // should be ≥ 6 for the candidate to have a chance.
         if mask.wrapping_mul(m).wrapping_shr(56).count_ones() < 6 {
             continue;
         }
 
-        // Try to populate the attack slice with this candidate.
-        // `used[idx]` tracks which entries were written during *this* attempt
-        // via a stamp (the attempt counter), so we don't need to clear the
-        // slice between attempts.
-        // Simple approach: clear-and-test is fast enough at this table size.
+        // Clear-and-test: the table is small enough that stamping schemes
+        // aren't worth the complexity.
         for t in table.iter_mut() {
             *t = 0;
         }
@@ -222,8 +204,7 @@ fn find_magic(
     }
 }
 
-/// Deterministic xoroshiro-adjacent RNG — SplitMix64 is sufficient for magic
-/// search and avoids a dependency.
+/// SplitMix64 — dependency-free deterministic RNG for magic search.
 struct SplitMix64(u64);
 impl SplitMix64 {
     const fn new(seed: u64) -> Self {
@@ -270,17 +251,17 @@ fn relevant_mask(sq: u8, kind: SliderKind) -> u64 {
     }
 }
 
+// Relevant masks exclude edge squares — edge occupancy doesn't change
+// what a slider sees (the edge is an implicit blocker), so those bits
+// don't need to be in the hash input.
+
 fn bishop_relevant_mask(sq: u8) -> u64 {
-    // Bishop rays from `sq`, **excluding** edge squares — edge occupancy
-    // doesn't affect what the bishop sees (it's already blocked by edge
-    // implicitly), so we don't need those bits in the mask.
     let f = (sq & 7) as i32;
     let r = (sq >> 3) as i32;
     let mut bb: u64 = 0;
     for (df, dr) in [(1, 1), (-1, 1), (1, -1), (-1, -1)] {
         let mut ff = f + df;
         let mut rr = r + dr;
-        // Exclude the destination edge squares (file 0/7, rank 0/7).
         while (1..=6).contains(&ff) && (1..=6).contains(&rr) {
             bb |= 1u64 << (rr * 8 + ff);
             ff += df;
@@ -294,13 +275,11 @@ fn rook_relevant_mask(sq: u8) -> u64 {
     let f = (sq & 7) as i32;
     let r = (sq >> 3) as i32;
     let mut bb: u64 = 0;
-    // Up / down along the file: exclude ranks 0 and 7.
     for rr in 1..=6 {
         if rr != r {
             bb |= 1u64 << (rr * 8 + f);
         }
     }
-    // Left / right along the rank: exclude files 0 and 7.
     for ff in 1..=6 {
         if ff != f {
             bb |= 1u64 << (r * 8 + ff);

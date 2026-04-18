@@ -16,8 +16,7 @@ use crate::types::{Color, PieceType, Square};
 /// table generation is deterministic across builds and Rust versions.
 const INITIAL_SEED: u64 = 0xC3A5_C85C_97CB_3127;
 
-/// SplitMix64 — a well-known high-quality seeder. Used purely at compile time
-/// so its simplicity (single u64 state) is a feature.
+/// SplitMix64 — used only at compile time to seed the key table.
 const fn splitmix64(state: u64) -> (u64, u64) {
     let next_state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
     let mut z = next_state;

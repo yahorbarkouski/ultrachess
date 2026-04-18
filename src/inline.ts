@@ -20,12 +20,7 @@
 import { decodeWasm } from "./generated/inline-wasm.js";
 import { initSync } from "./loader.js";
 
-// Eager initialisation: by the time any symbol is imported from this
-// module, the WASM instance is ready. `initSync` is idempotent — a second
-// call from user code is a no-op.
+// Eager init: the WASM instance is ready before any re-exported symbol is used.
 initSync(decodeWasm());
 
-// Re-export the full public API from the standard entry. Consumers get the
-// same classes / types / functions; the only difference is that the ABI is
-// guaranteed to be initialised synchronously.
 export * from "./index.js";

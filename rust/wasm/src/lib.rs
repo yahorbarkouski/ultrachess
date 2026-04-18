@@ -25,12 +25,11 @@ use ultrachess_core::types::{Color, Piece, PieceType, Square};
 
 use crate::slab::{with_pgn, with_pgn_mut, with_positions, with_positions_mut, HANDLE_INVALID};
 
-// ABI version — bump on breaking changes.
 const ABI_VERSION: u32 = 2;
 
-// Scratch areas. Single-threaded; `static mut` is sound in WASM.
+// Scratch areas. WASM is single-threaded; `static mut` is sound.
 const MOVE_SCRATCH_CAP: usize = 512;
-const STRING_SCRATCH_CAP: usize = 65_536; // large enough for big PGNs
+const STRING_SCRATCH_CAP: usize = 65_536; // ample for large PGNs
 
 static mut MOVE_SCRATCH: [u32; MOVE_SCRATCH_CAP] = [0u32; MOVE_SCRATCH_CAP];
 static mut STRING_SCRATCH: [u8; STRING_SCRATCH_CAP] = [0u8; STRING_SCRATCH_CAP];

@@ -54,15 +54,15 @@ export function movePromotion(m: Move): PieceType {
 // --- Square / piece helpers -------------------------------------------------
 
 export function squareName(sq: number): string {
-  const file = String.fromCharCode(97 + (sq & 7)); // 'a' + file
-  const rank = String.fromCharCode(49 + (sq >> 3)); // '1' + rank
+  const file = String.fromCharCode(97 + (sq & 7));
+  const rank = String.fromCharCode(49 + (sq >> 3));
   return `${file}${rank}`;
 }
 
 export function parseSquare(name: string): number | null {
   if (name.length !== 2) return null;
-  const f = name.charCodeAt(0) - 97; // 'a'
-  const r = name.charCodeAt(1) - 49; // '1'
+  const f = name.charCodeAt(0) - 97;
+  const r = name.charCodeAt(1) - 49;
   if (f < 0 || f > 7 || r < 0 || r > 7) return null;
   return r * 8 + f;
 }
@@ -105,12 +105,11 @@ export function pieceChar(p: Piece): string {
 // --- Verbose move -----------------------------------------------------------
 
 /** Human-readable, self-descriptive move — built on demand from a packed
- *  `Move` + its originating `Position`. Never allocated inside hot-path
- *  move generation. */
+ *  `Move`. Never allocated inside hot-path move generation. */
 export interface VerboseMove {
-  /** Source square index — `0..=63`, with `0 = a1`, `63 = h8` (rank-major). */
+  /** Source square (0..63, LERF: 0 = a1, 63 = h8). */
   fromIndex: number;
-  /** Target square index — same encoding as `fromIndex`. */
+  /** Target square (same encoding as `fromIndex`). */
   toIndex: number;
   /** Source square in algebraic notation, e.g. `"e2"`. */
   from: string;
