@@ -4,6 +4,7 @@ dist/
 *.wasm.opt
 .DS_Store
 *.log
+.claude/
 
 # Generated at build time — kept in git on release branches but excluded
 # during development to avoid noisy diffs.
