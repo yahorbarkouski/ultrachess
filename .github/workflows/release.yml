@@ -53,10 +53,6 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           cache: npm
 
-      # Ensure npm has full Trusted Publishing OIDC support.
-      - name: Upgrade npm to latest
-        run: npm install -g npm@latest
-
       - run: npm ci
 
       # Standard gate: lint + typecheck, then Rust + TS tests.
