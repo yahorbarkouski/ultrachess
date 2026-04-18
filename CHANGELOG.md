@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/yahorbarkouski/ultrachess/compare/v1.3.0...v1.4.0) (2026-04-18)
+
+
+### Features
+
+* pipeline release ([f188d30](https://github.com/yahorbarkouski/ultrachess/commit/f188d30c901194952baa1f013234151353231c68))
+
 ## [1.3.0](https://github.com/yahorbarkouski/ultrachess/compare/v1.2.0...v1.3.0) (2026-04-18)
 
 
