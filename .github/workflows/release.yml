@@ -1,0 +1,70 @@
+name: release
+
+on:
+  # Fires when release-please's draft is promoted to a published Release.
+  release:
+    types: [published]
+  # Safety valve for hotfixes or if release-please misbehaves.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (tag or SHA) to publish"
+        required: true
+        type: string
+
+env:
+  RUST_TOOLCHAIN: "1.95"
+  NODE_VERSION: "20"
+
+jobs:
+  publish:
+    name: npm publish (provenance via OIDC)
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      # id-token: write is what turns OIDC on — required for both
+      # npm Trusted Publishing and npm provenance attestations.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install binaryen (wasm-opt)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      - run: npm ci
+
+      # Standard gate: lint + typecheck, then Rust + TS tests.
+      # `npm run test:ts` runs build:wasm + build:inline + vitest internally.
+      - run: npm run check
+      - run: npm run test
+
+      # Produce the publish artefact from a clean build.
+      - run: npm run build
+
+      - name: npm pack --dry-run (final sanity log)
+        run: npm pack --dry-run
+
+      - name: npm publish with provenance
+        # 1.0.0 was published manually from a maintainer machine. Trusted
+        # Publishing is configured on npmjs.com for this package/workflow,
+        # so no NODE_AUTH_TOKEN is needed — npm exchanges the OIDC token
+        # (`id-token: write` above) for a short-lived publish credential.
+        run: npm publish --provenance --access public

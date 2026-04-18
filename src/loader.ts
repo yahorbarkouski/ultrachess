@@ -158,10 +158,17 @@ async function instantiate(override?: BufferSource): Promise<UltrachessAbi> {
 async function fetchWasmBytes(): Promise<ArrayBuffer> {
   const wasmUrl = new URL("../assets/ultrachess.wasm", import.meta.url);
   if (wasmUrl.protocol === "file:") {
-    const { readFile } = await import("node:fs/promises");
-    const { fileURLToPath } = await import("node:url");
-    const path = fileURLToPath(wasmUrl);
-    const buf = await readFile(path);
+    // Indirecting the built-in specifiers through variables defeats
+    // esbuild's static rewrite of `"node:fs/promises"` → `"fs/promises"`.
+    // Node and Bun tolerate the bare form, but Deno 2.x strictly requires
+    // the `node:` prefix and would error with "Import 'fs/promises' not a
+    // dependency" on the stripped specifier. Keep these as variables.
+    const fsSpec = "node:fs/promises";
+    const urlSpec = "node:url";
+    const fs = (await import(fsSpec)) as typeof import("node:fs/promises");
+    const url = (await import(urlSpec)) as typeof import("node:url");
+    const path = url.fileURLToPath(wasmUrl);
+    const buf = await fs.readFile(path);
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   }
   const response = await fetch(wasmUrl);

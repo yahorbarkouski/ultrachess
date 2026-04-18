@@ -164,21 +164,13 @@ function compareGame(seed: number, maxPlies: number): Divergence | null {
       ultra.move(san);
     } catch (e) {
       // ultrachess generated this SAN but won't re-parse it — internal bug.
-      return div(
-        "ultra_rejected_own_san",
-        (e as Error).message,
-        "(accepted)",
-      );
+      return div("ultra_rejected_own_san", (e as Error).message, "(accepted)");
     }
     try {
       chessJs.move(san);
     } catch (e) {
       // chess.js rejected a SAN ultrachess listed as legal — legality diff.
-      return div(
-        "chess_js_rejected_ultra_move",
-        "(accepted)",
-        (e as Error).message,
-      );
+      return div("chess_js_rejected_ultra_move", "(accepted)", (e as Error).message);
     }
   }
 
@@ -191,29 +183,27 @@ function compareGame(seed: number, maxPlies: number): Divergence | null {
 // ---------------------------------------------------------------------------
 
 describe("differential vs chess.js", () => {
-  it(
-    `${DEFAULT_GAMES} random games × ≤${MAX_PLIES} plies agree on every field`,
-    { timeout: 120_000 },
-    () => {
-      const failures: Divergence[] = [];
-      for (let seed = 1; seed <= DEFAULT_GAMES; seed++) {
-        const div = compareGame(seed, MAX_PLIES);
-        if (div) {
-          failures.push(div);
-          // Collect a handful of distinct root causes, then bail — keeps
-          // the error message readable without hiding systemic failures.
-          if (failures.length >= 3) break;
-        }
+  it(`${DEFAULT_GAMES} random games × ≤${MAX_PLIES} plies agree on every field`, {
+    timeout: 120_000,
+  }, () => {
+    const failures: Divergence[] = [];
+    for (let seed = 1; seed <= DEFAULT_GAMES; seed++) {
+      const div = compareGame(seed, MAX_PLIES);
+      if (div) {
+        failures.push(div);
+        // Collect a handful of distinct root causes, then bail — keeps
+        // the error message readable without hiding systemic failures.
+        if (failures.length >= 3) break;
       }
-      if (failures.length > 0) {
-        const message =
-          `found ${failures.length} divergence${failures.length === 1 ? "" : "s"} ` +
-          `in the first ${DEFAULT_GAMES} games:\n\n` +
-          failures.map(formatDivergence).join("\n\n");
-        expect.fail(message);
-      }
-    },
-  );
+    }
+    if (failures.length > 0) {
+      const message =
+        `found ${failures.length} divergence${failures.length === 1 ? "" : "s"} ` +
+        `in the first ${DEFAULT_GAMES} games:\n\n` +
+        failures.map(formatDivergence).join("\n\n");
+      expect.fail(message);
+    }
+  });
 
   // Heavy tier — env-gated so it doesn't inflate the default test run.
   // Run with e.g. `DIFF_FUZZ_GAMES=10000 npx vitest run test/differential`.

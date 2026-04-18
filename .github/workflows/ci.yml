@@ -1,0 +1,188 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_TOOLCHAIN: "1.95"
+  NODE_VERSION: "20"
+
+jobs:
+  lint:
+    name: lint (fmt + clippy + biome + tsc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install binaryen (wasm-opt)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # typecheck needs src/generated/inline-wasm.ts to exist.
+      - run: npm run build:wasm
+      - run: npm run build:inline
+
+      - run: npm run fmt:check
+      - run: npm run lint
+      - run: npm run typecheck
+
+  rust-test:
+    name: rust tests (core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test --release -p ultrachess-core
+
+  ts-test:
+    name: ts tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install binaryen (wasm-opt)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build:wasm
+      - run: npm run build:inline
+      - run: npx vitest run
+
+      - name: Upload WASM artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ultrachess-wasm
+          path: assets/ultrachess.wasm
+          if-no-files-found: error
+          retention-days: 7
+
+  cross-runtime:
+    name: cross-runtime smoke (node + bun + deno)
+    runs-on: ubuntu-latest
+    needs: ts-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install binaryen (wasm-opt)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Node smoke (ESM)
+        run: node test/cross-runtime/bun-smoke.mjs
+
+      - name: Node smoke (CJS require)
+        run: node test/cross-runtime/cjs-smoke.cjs
+
+      - name: Bun smoke
+        run: bun test/cross-runtime/bun-smoke.mjs
+
+      - name: Deno smoke
+        run: deno run --allow-read --allow-env test/cross-runtime/bun-smoke.mjs
+
+  package-inspect:
+    name: package inspection (pack + publint + attw)
+    runs-on: ubuntu-latest
+    needs: ts-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install binaryen (wasm-opt)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: npm pack --dry-run (size budget 1 MB)
+        run: |
+          set -euo pipefail
+          npm pack --dry-run --json > pack.json
+          size=$(node -e "console.log(JSON.parse(require('fs').readFileSync('pack.json','utf8'))[0].size)")
+          echo "Tarball size: ${size} bytes"
+          if [ "$size" -gt 1048576 ]; then
+            echo "::error::Tarball exceeds 1 MB budget"
+            exit 1
+          fi
+
+      - name: publint
+        run: npx --yes publint
+
+      - name: arethetypeswrong
+        # We target Node >=18 (see `engines` in package.json), so we
+        # intentionally skip the node10 resolver — it pre-dates the
+        # `exports` field and can't find subpath entries.
+        run: npx --yes -p @arethetypeswrong/cli attw --pack . --profile node16
