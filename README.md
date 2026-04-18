@@ -1,6 +1,6 @@
 # ultrachess
 
-A Rust chess engine compiled to WebAssembly, with a typed TypeScript API. Legal move generation, FEN / SAN / PGN, perft, and Zobrist hashing at native-Rust speed
+A Rust chess engine compiled to WebAssembly behind a typed TypeScript API with zero runtime dependencies. Legal move generation, FEN / SAN / PGN, perft, and Zobrist hashing at native-Rust speed
 
 - Fully legal move generation via pin masks + check masks
 - Magic bitboards for sliders; O(1) `inCheck()` and `hash()`
