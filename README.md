@@ -10,6 +10,7 @@ A Rust chess engine compiled to WebAssembly behind a typed TypeScript API with z
 - Zero-copy move enumeration through a shared `Uint32Array`
 - Full PGN: headers, NAGs, comments; parse -> replay -> emit round-trip
 - ~55x the perft throughput of chess.js on Node, ~95x on Bun, in a 45 KB brotli WASM + ~10 KB TS bundle
+- Heavily tested by a 100k-game lock-step differential against established legacy chess libraries (FEN, legal-move sets, check/mate/stale/draw byte-equal at every ply), 1.2M+ property assertions, and ≥95% line coverage enforced on both Rust core and TS shim
 
 ---
 
@@ -25,8 +26,8 @@ Startpos perft depth 6 = 119,060,324 nodes. Measured via `await Chess.create()` 
 |-------------------|--------:|------:|---------------:|
 | **Bun 1.3.10**    |   204.9 | 581.0 |          0.70x |
 | **Node 25.7.0**   |   353.7 | 336.7 |          0.40x |
-| chess.js (pure JS, cited)       | — | 5–7   | — |
-| chessops (pure TS, cited)       | — | 2–3   | — |
+| [chess.js](https://github.com/jhlywa/chess.js) (pure JS, cited)   | — | 5–7   | — |
+| [chessops](https://github.com/niklasf/chessops) (pure TS, cited)  | — | 2–3   | — |
 
 Geomean across the six standard perft positions: **770 Mnps (Bun)**, **465 Mnps (Node)**
 
@@ -37,9 +38,9 @@ The WASM number is a fraction of what the Rust core produces on the same host. P
 | Library              | Startpos d6 | Kiwipete d5 | Geomean (6 positions) |
 |----------------------|------------:|------------:|----------------------:|
 | **ultrachess**       |  **836 Mnps** | **1,562 Mnps** |             **1.00x** |
-| cozy-chess 0.3.4     |   600 Mnps  |  1,085 Mnps |                 0.81x |
-| shakmaty 0.30.0      |   345 Mnps  |    369 Mnps |                 0.27x |
-| chess 3.2.0 (jb)     |   519 Mnps  |    840 Mnps |                 0.52x |
+| [cozy-chess](https://github.com/analog-hors/cozy-chess) 0.3.4   |   600 Mnps  |  1,085 Mnps |                 0.81x |
+| [shakmaty](https://github.com/niklasf/shakmaty) 0.30.0     |   345 Mnps  |    369 Mnps |                 0.27x |
+| [chess](https://github.com/jordanbray/chess) 3.2.0 (jb)    |   519 Mnps  |    840 Mnps |                 0.52x |
 
 
 ### Native Rust micro-benchmarks, ns per op (lower is better)
@@ -371,14 +372,14 @@ Every error extends `Error` and is also exported.
 
 ## Limitations
 
-- **No engine.** This is a chess *rules* core. No evaluation, no search, no opening book. Pair with a UCI engine (Stockfish, Lc0) for play.
-- **Standard chess only.** No Chess960, atomic, antichess, crazyhouse, or three-check. For variants, `chessops` is excellent.
+- **No engine.** This is a chess *rules* core. No evaluation, no search, no opening book. Pair with a UCI engine ([Stockfish](https://github.com/official-stockfish/Stockfish), [Lc0](https://github.com/LeelaChessZero/lc0)) for play.
+- **Standard chess only.** No Chess960, atomic, antichess, crazyhouse, or three-check. For variants, [`chessops`](https://github.com/niklasf/chessops) is excellent.
 
 ---
 
 ## Coming from chess.js
 
-The API surface is different — construction is async by default, moves are packed 16-bit integers, and legal-move generation never emits an illegal move in the first place (no pseudo-legal pass, no filter step). Full side-by-side differences and the fuzz-gated semantic equivalences are in [`COMPAT.md`](./COMPAT.md).
+The API surface is different from [chess.js](https://github.com/jhlywa/chess.js) — construction is async by default, moves are packed 16-bit integers, and legal-move generation never emits an illegal move in the first place (no pseudo-legal pass, no filter step). Full side-by-side differences and the fuzz-gated semantic equivalences are in [`COMPAT.md`](./COMPAT.md).
 
 ---
 
@@ -398,8 +399,24 @@ Pull requests that touch move generation must include a perft diff for all six s
 
 ---
 
-## License & credits
+## License
 
 MIT.
 
-Credits: Peter Ellis Jones for the pin/check-mask legal move-generation algorithm; Pradyumna Kannan and Volker Annuss for the fancy magic bitboard construction; the Stockfish, cozy-chess, and shakmaty projects for prior-art techniques and reference perft tables; Steven Edwards for the PGN specification (1994).
+---
+
+## Credits
+
+Ultrachess is built on decades of open chess-programming research and the living ecosystem of libraries around it. Specific debts:
+
+- **[Peter Ellis Jones](https://peterellisjones.com/)** — his write-up on [generating legal chess moves efficiently](https://peterellisjones.com/posts/generating-legal-chess-moves-efficiently/) is the blueprint this core implements: pin-ray masks, check masks, king-danger squares, and the single-pass legal emitter. No pseudo-legal pass exists here because of that post.
+- **Pradyumna Kannan** and **Volker Annuss** — the fancy magic bitboard construction. The multiplier-search strategy and variable-shift attack tables that make slider move generation cost one multiply + one shift + one load come from their work.
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)** — the reference perft node counts for Kiwipete and positions 3–6 used in our correctness gate, plus thirty years of practical chess-programming technique distilled in its source tree.
+- **[cozy-chess](https://github.com/analog-hors/cozy-chess)** (analog-hors) — the Rust chess core we benchmark against; its movegen design influenced the shape of ours, and its coverage discipline set a bar worth matching.
+- **[shakmaty](https://github.com/niklasf/shakmaty)** (niklasf) — the permissively-licensed Rust chess library that showed a zero-dep, variant-aware core was achievable; many ergonomic choices here echo its API.
+- **[chess](https://github.com/jordanbray/chess)** (Jordan Bray) — a prior-art Rust chess library benchmarked alongside ours; a useful calibration point for both correctness and throughput.
+- **[chess.js](https://github.com/jhlywa/chess.js)** (Jeff Hlywa) — the JavaScript-side lingua franca of chess on the web for over a decade, and our differential oracle for 100k+ random games. Any semantic divergence between us and it is, by construction, a bug on our side until proven otherwise.
+- **[chessops](https://github.com/niklasf/chessops)** (niklasf) — the pure-TypeScript reference point we measure against, and the library to reach for when you need variants.
+- **Albert Zobrist** — the 1970 paper "A New Hashing Method with Application for Game Playing" defines the 64-bit incremental position hash `hash()` returns.
+- **Steven Edwards** — the 1994 PGN specification our parser and emitter round-trip against.
+- The broader **[Chess Programming Wiki](https://www.chessprogramming.org/)** community, whose collectively-written articles on bitboards, perft, Zobrist hashing, and legal-move generation underlie nearly every technical decision in this repo.
