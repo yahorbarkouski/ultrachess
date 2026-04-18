@@ -70,16 +70,15 @@ Zero runtime dependencies, the `.wasm` ships inside the package and is loaded by
 
 ## Entry points
 
-| Import                    | Init                    | Bundle cost                                      | Use when                                                                             |
-|---------------------------|-------------------------|--------------------------------------------------|--------------------------------------------------------------------------------------|
-| `ultrachess`            | async (`await init()`)  | 10 KB TS + fetches 45 KB brotli WASM             | default; anywhere WASM can be fetched.                                               |
-| `ultrachess/inline`     | sync (`createSync()`)   | 10 KB TS + ~60 KB inlined base64 WASM (33% larger) | no top-level await; edge runtimes without fetch / FS; CSP without `wasm-unsafe-eval` |
-| `ultrachess/low-level`  | manual `instantiate()`  | raw ABI, no `Chess` class                        | building a search engine on top; direct linear-memory access.                        |
+| Import                    | Init                           | Bundle cost                                      | Use when                                                                             |
+|---------------------------|--------------------------------|--------------------------------------------------|--------------------------------------------------------------------------------------|
+| `ultrachess`            | async (`await Chess.create()`)   | 10 KB TS + fetches 45 KB brotli WASM             | default; anywhere WASM can be fetched.                                               |
+| `ultrachess/inline`     | sync (`Chess.createSync()`)      | 10 KB TS + ~60 KB inlined base64 WASM (33% larger) | no top-level await; edge runtimes without fetch / FS; CSP without `wasm-unsafe-eval` |
+| `ultrachess/low-level`  | manual `await init()`            | raw ABI, no `Chess` class                        | building a search engine on top; direct linear-memory access.                        |
 
 ```ts
-// Default — async init
-import { Chess, init } from "ultrachess";
-await init();
+// Default — WASM loads on first Chess.create(); no explicit init() needed
+import { Chess } from "ultrachess";
 const chess = await Chess.create();
 ```
 
@@ -96,7 +95,7 @@ const abi: UltrachessAbi = await init();
 const handle = abi.ultrachess_new_startpos();
 ```
 
-SSR: call `await init()` once at module load; do not call it per request.
+SSR tip: `Chess.create()` initialises WASM lazily on first call, so no explicit init is required. If you want to warm the WASM at module load (so the first request doesn't pay the compile cost), import `init` and `await init()` once at boot — it's idempotent. Do not call it per request.
 
 ---
 
@@ -107,7 +106,6 @@ One runnable script covering every core capability.
 ```ts
 import {
   Chess,
-  init,
   Color,
   MoveKind,
   moveFrom,
@@ -116,8 +114,7 @@ import {
   moveToUci,
 } from "ultrachess";
 
-await init();                              // instantiate WASM once
-const chess = await Chess.create();        // standard starting position
+const chess = await Chess.create();        // WASM loads on first call — no init() needed
 
 // --- Play moves (SAN) ---
 chess.move("e4");
@@ -203,7 +200,7 @@ Signatures are TypeScript. The `Chess` class is the primary surface; everything 
 |----------------------------------------------------------|-------------------------------------------------|
 | `Chess.create(fen?: string): Promise<Chess>`             | Default async construction. Starting position if `fen` is omitted. |
 | `Chess.fromFen(fen: string): Promise<Chess>`             | Alias for `create(fen)`.                        |
-| `Chess.createSync(fen?: string): Chess`                  | Inline entry only, after `initSync()`.          |
+| `Chess.createSync(fen?: string): Chess`                  | Inline entry only. The inline module auto-calls `initSync()` at import time, so `Chess.createSync()` works with no further setup. |
 | `Chess.loadPgn(pgn: string): Promise<Chess>`             | Parse PGN + replay mainline into a fresh instance. |
 | `chess.clone(): Chess`                                   | New handle, same position. History is reset. Headers and position-keyed comments travel with the clone. |
 | `chess.reset(): void`                                    | Swap back to the starting position in place; clears history, headers, and comments. |
