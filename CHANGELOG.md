@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/yahorbarkouski/ultrachess/compare/v1.1.0...v1.1.1) (2026-04-18)
+
+
+### Documentation
+
+* readme credits ([dbe82bf](https://github.com/yahorbarkouski/ultrachess/commit/dbe82bf596e780123b8a2189c97f1779ae946aad))
+
 ## [1.1.0](https://github.com/yahorbarkouski/ultrachess/compare/v1.0.0...v1.1.0) (2026-04-18)
 
 
