@@ -196,7 +196,6 @@ export class Chess {
       throw new InvalidPgnError("parse failed");
     }
     try {
-      // Pull headers + moves out of the parsed-PGN slab.
       const headerCount = a.ultrachess_pgn_header_count(pgnHandle);
       const headers = new Map<string, string>();
       for (let i = 0; i < headerCount; i++) {
@@ -229,16 +228,14 @@ export class Chess {
         sans[i] = readStringScratch(a, sanLen);
       }
 
-      // Pick the starting position — respect a FEN/SetUp header if present.
+      // Respect a FEN/SetUp header if present; else start from the standard position.
       const startFen = headers.get("FEN");
       const chess = startFen !== undefined ? await Chess.create(startFen) : await Chess.create();
 
-      // Copy parsed headers onto the Chess instance.
       for (const [k, v] of headers) {
         chess.headerMap.set(k, v);
       }
 
-      // Replay moves — each must be legal in the position reached so far.
       for (let i = 0; i < sans.length; i++) {
         const san = sans[i]!;
         try {
@@ -400,9 +397,7 @@ export class Chess {
     const idx = typeof square === "string" ? parseSquare(square) : square;
     if (idx === null || idx < 0 || idx >= 64) return [];
     const scratchPtr = this.abi.ultrachess_string_scratch_ptr();
-    // Max 16 attackers in practice; leave ample headroom.
-    const cap = 32;
-    const count = this.abi.ultrachess_attackers(this.handle, idx, by, 0, cap);
+    const count = this.abi.ultrachess_attackers(this.handle, idx, by, 0, 32);
     const view = new Uint8Array(this.abi.memory.buffer, scratchPtr, count);
     const out = new Array<string>(count);
     for (let i = 0; i < count; i++) out[i] = squareName(view[i]!);
@@ -441,7 +436,7 @@ export class Chess {
     if (result === PIECE_INVALID_ARGS) {
       throw new RangeError(`invalid put(${JSON.stringify(piece)}, ${String(square)})`);
     }
-    // Edits wipe history; clear our own stack so `undo()` returns null.
+    // Edits invalidate the undo stack on the Rust side; mirror that here.
     this.moveStack.length = 0;
     return result === PIECE_EMPTY ? null : decodePiece(result);
   }
@@ -596,7 +591,6 @@ export class Chess {
 
     let captured: PieceType | undefined;
     if (kind === MoveKind.EnPassant) {
-      // EP always captures an enemy pawn.
       captured = PieceType.Pawn;
     } else {
       const targetPiece = this.pieceAt(toIndex);
@@ -818,7 +812,7 @@ export class Chess {
     const verboseHistory = this.history({ verbose: true });
     const out: string[] = [];
 
-    // 7-tag roster first, then everything else in insertion order.
+    // Seven-Tag-Roster first, then everything else in insertion order.
     const sevenTags = ["Event", "Site", "Date", "Round", "White", "Black", "Result"];
     const emitted = new Set<string>();
     for (const tag of sevenTags) {
@@ -943,25 +937,17 @@ export class Chess {
   // Perft + clone + lifecycle
   // --------------------------------------------------------------------
 
-  /** Count leaf nodes at `depth`. Runs entirely inside WASM — one boundary
-   *  crossing, no per-node JS overhead. */
+  /** Count leaf nodes at `depth`. Runs entirely inside WASM. */
   perft(depth: number): bigint {
     this.requireAlive();
     const lo = this.abi.ultrachess_perft(this.handle, depth >>> 0);
     return readU64(this.abi, lo);
   }
 
-  /** Clone the current position as an independent, **fresh** Chess.
-   *
-   *  Semantics mirror `Position::clone` in the Rust core: the returned
-   *  instance represents the same board state but with an empty move
-   *  history — `undo()` on the clone returns `null` until it has played
-   *  moves of its own. This matches the common "snapshot this state"
-   *  use case (equivalent to `new Chess(original.fen())`) and avoids a
-   *  heap copy of the undo stack on every clone.
-   *
-   *  Headers are copied — they're metadata about the *game*, not the
-   *  undo stack, and users expect them to travel with a clone. */
+  /** Clone the current position as an independent Chess with an **empty**
+   *  undo stack. `undo()` on the clone returns `null` until it has played
+   *  its own moves — same contract as `Position::clone` in the Rust core,
+   *  equivalent to `new Chess(original.fen())`. Headers are copied. */
   clone(): Chess {
     this.requireAlive();
     const handle = this.abi.ultrachess_clone(this.handle);

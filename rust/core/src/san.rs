@@ -33,17 +33,13 @@ fn attacks_from_target(pt: PieceType, to: Square, occ: Bitboard) -> Bitboard {
 // Writer: Move → SAN
 // --------------------------------------------------------------------------
 
-/// Emit canonical SAN for `m` in `pos`. Requires `m` to be a legal move in
-/// `pos`; panics in debug builds otherwise.
+/// Emit canonical SAN for `m` in `pos`. Requires `m` to be legal; panics
+/// in debug builds otherwise.
 ///
-/// **`&mut Position`, but logically read-only.** Detecting the `+` / `#`
-/// suffix requires knowing whether the opponent is in check / mated *after*
-/// `m` is played. We use the standard make-then-unmake idiom on `pos` itself
-/// rather than cloning (which would heap-allocate `history` on every SAN
-/// emission, and PGN writing emits one SAN per ply). On return `pos` is
-/// byte-for-byte equal to its state at entry — including `zobrist`,
-/// `history`, and the `checkers` cache — so callers may treat the borrow
-/// as read-only.
+/// `&mut Position` but logically read-only: the `+`/`#` suffix uses
+/// make-then-unmake on `pos` rather than cloning (which would heap-allocate
+/// `history` per SAN, and PGN writing emits one SAN per ply). `pos` is
+/// byte-for-byte restored on return.
 pub fn move_to_san(pos: &mut Position, m: Move) -> String {
     debug_assert_move_is_legal(pos, m);
 
@@ -74,28 +70,17 @@ pub fn move_to_san(pos: &mut Position, m: Move) -> String {
         }
     } else {
         s.push(piece_letter(pt));
-        // Disambiguate: find OTHER same-type same-colour pieces that could
-        // also move to `to`.
-        //
-        // Cheap path: use attack tables directly against the same-type bb
-        // rather than running full move generation. For each candidate
-        // "from'" square (same piece-type, same color, sees `to`), we still
-        // need to check it's not pinned / its move would be legal, but
-        // that's a targeted check per candidate, not a full generator pass.
-        //
-        // The common case (one piece of that type targeting the square)
-        // short-circuits with zero legal-moves work.
+        // Disambiguation. Cheap pre-filter via attack tables: if no other
+        // same-type piece of our color even sees `to`, we skip movegen
+        // entirely (the common case). Only if we have candidates do we
+        // run the full legal-move generator to filter out pinned/illegal ones.
         let ours = piece.color();
         let same_type_bb = pos.piece_bb(ours, pt);
-        // Candidates: same-type pieces (other than `from`) that attack `to`.
         let occ = pos.occupied();
         let attackers_bb = same_type_bb & !from.bb() & attacks_from_target(pt, to, occ);
         let mut disamb_sqs: [Square; 8] = [Square(0); 8];
         let mut cnt = 0usize;
         if attackers_bb != 0 {
-            // For each candidate, verify the move is actually legal (not
-            // left in check, not violating a pin). Do this lazily: only
-            // run the full legal-move generator if we need to.
             let mut ml = MoveList::new();
             generate_legal_moves(pos, &mut ml);
             for cm in ml.iter() {
@@ -146,10 +131,8 @@ pub fn move_to_san(pos: &mut Position, m: Move) -> String {
 
 fn append_check_suffix(pos: &mut Position, m: Move, s: &mut String) {
     pos.make_move(m);
-    // `in_check()` is now an O(1) cache read — cheap enough to gate the
-    // much more expensive `has_no_legal_moves()` call behind it. Most
-    // moves don't give check, so the common path never generates the
-    // opponent's legal moves at all.
+    // O(1) `in_check()` gates the expensive `has_no_legal_moves()`, so
+    // non-checking moves never run the opponent's movegen.
     if pos.in_check() {
         if pos.has_no_legal_moves() {
             s.push('#');

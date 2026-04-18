@@ -137,7 +137,11 @@ fn insufficient_material_known_positions() {
         "8/8/8/4k3/8/4K3/8/8 w - - 0 1",     // K vs K
         "8/8/8/4k3/8/4K3/8/5N2 w - - 0 1",   // K+N vs K
         "8/8/8/4k3/8/4K3/8/5B2 w - - 0 1",   // K+B vs K
-        "8/8/8/4k3/4B3/8/4K3/1b6 w - - 0 1", // same-colour bishops
+        "8/8/8/4k3/4B3/8/4K3/1b6 w - - 0 1", // same-colour bishops (1+1)
+        // Generalised same-colour case: K+B vs K+B+B, ALL bishops on the
+        // light complex. Caught by the 100k differential fuzzer against
+        // chess.js — see `git log` for the exact seed.
+        "4k3/8/6b1/8/8/1B6/8/3K1b2 b - - 0 1",
     ];
     for fen in insufficient {
         let p = parse_fen(fen).unwrap();
@@ -151,6 +155,11 @@ fn insufficient_material_known_positions() {
         "8/8/8/4k3/8/8/4K3/5Q2 w - - 0 1",  // K+Q vs K
         "8/8/8/4k3/8/8/4K3/5R2 w - - 0 1",  // K+R vs K
         "8/8/8/4k3/8/8/4PK2/8 w - - 0 1",   // K+P vs K
+        // K+B vs K+N — can't be all-bishops; knight keeps it sufficient.
+        "4k3/8/8/8/8/8/4K3/3NB3 w - - 0 1",
+        // K+B+B vs K, but bishops on OPPOSITE colours — different-colour
+        // bishops on one side defeat the "all same complex" rule.
+        "4k3/8/8/8/8/8/4K3/2B2B2 w - - 0 1",
     ];
     for fen in sufficient {
         let p = parse_fen(fen).unwrap();

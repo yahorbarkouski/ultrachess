@@ -56,7 +56,7 @@ pub fn parse_fen(s: &str) -> Result<Position, FenError> {
 
     let mut pos = Position::empty();
 
-    // Placement — ranks are listed 8 down to 1.
+    // Placement: ranks listed 8 down to 1.
     let mut rank: i32 = 7;
     let mut file: i32 = 0;
     for ch in placement.chars() {
@@ -96,14 +96,12 @@ pub fn parse_fen(s: &str) -> Result<Position, FenError> {
         return Err(FenError::PieceCountMismatch);
     }
 
-    // Side.
     pos.side_to_move = match side {
         "w" => Color::White,
         "b" => Color::Black,
         _ => return Err(FenError::BadSide),
     };
 
-    // Castling.
     let mut cr = CastlingRights::NONE;
     if castling != "-" {
         for ch in castling.chars() {
@@ -118,14 +116,12 @@ pub fn parse_fen(s: &str) -> Result<Position, FenError> {
     }
     pos.castling = cr;
 
-    // En-passant.
     if ep != "-" {
         let sq = Square::parse_ascii(ep.as_bytes())
             .ok_or_else(|| FenError::BadEnPassant(ep.to_string()))?;
         pos.ep_square = Some(sq);
     }
 
-    // Numbers.
     pos.halfmove = match halfmove_s {
         Some(s) => s
             .parse::<u16>()
@@ -145,27 +141,21 @@ pub fn parse_fen(s: &str) -> Result<Position, FenError> {
     };
 
     validate(&pos)?;
-    // X-FEN 2020: the ep square is only meaningful when the capture is
-    // fully legal for the side to move. Downgrade to None otherwise so
-    // that `Position.ep_square.is_some() ⇒ legal EP exists` holds as an
-    // invariant across `parse_fen` / `make_move` / `make_move_perft`.
-    // The single authoritative check lives on `Position` to keep these
-    // three entry points from drifting.
+    // X-FEN 2020: downgrade `ep_square` to None unless the capture is
+    // fully legal, so that `ep_square.is_some() ⇒ legal EP exists` holds
+    // uniformly across `parse_fen` / `make_move` / `make_move_perft`.
     if let Some(ep) = pos.ep_square {
         if !pos.ep_capture_is_legal_for(ep, pos.side_to_move) {
             pos.ep_square = None;
         }
     }
-    // Zobrist + checkers are maintained incrementally thereafter; compute
-    // each once here. Caching checkers up-front lets `in_check()` and
-    // related API calls be O(1).
+    // One-shot seed; both are maintained incrementally from here.
     pos.recompute_zobrist();
     pos.recompute_checkers();
     Ok(pos)
 }
 
 fn validate(pos: &Position) -> Result<(), FenError> {
-    // Exactly one king per side.
     for c in [Color::White, Color::Black] {
         let kings = pos.piece_bb(c, PieceType::King).count_ones();
         match kings {
@@ -174,25 +164,24 @@ fn validate(pos: &Position) -> Result<(), FenError> {
             _ => return Err(FenError::TooManyKings(c)),
         }
     }
-    // No pawns on rank 1 or 8.
     let pawn_mask =
         pos.piece_bb(Color::White, PieceType::Pawn) | pos.piece_bb(Color::Black, PieceType::Pawn);
     if pawn_mask & (crate::bitboard::RANK_1 | crate::bitboard::RANK_8) != 0 {
         return Err(FenError::PawnOnBackRank);
     }
-    // EP square requires a pawn of the side-not-to-move having just moved 2.
+    // EP square must be on the opponent's 3rd/6th rank, with the pushed
+    // pawn sitting "behind" it.
     if let Some(ep) = pos.ep_square {
         let expected_rank = match pos.side_to_move {
-            Color::White => 5, // rank 6 in 1-based (index 5)
-            Color::Black => 2, // rank 3
+            Color::White => 5,
+            Color::Black => 2,
         };
         if ep.rank() != expected_rank {
             return Err(FenError::BadEnPassant(ep.to_string()));
         }
-        // Pawn that made the double push sits "behind" the ep square.
         let pawn_sq = match pos.side_to_move {
-            Color::White => Square::from_file_rank(ep.file(), ep.rank() - 1), // rank 5
-            Color::Black => Square::from_file_rank(ep.file(), ep.rank() + 1), // rank 4
+            Color::White => Square::from_file_rank(ep.file(), ep.rank() - 1),
+            Color::Black => Square::from_file_rank(ep.file(), ep.rank() + 1),
         };
         let pawn = pos.piece_at(pawn_sq);
         if pawn.is_none()
