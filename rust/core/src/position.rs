@@ -236,11 +236,7 @@ impl Position {
     /// `capturer = them`) and from `parse_fen` (where `capturer =
     /// side_to_move`). Both pre-flip and post-parse states are expressed
     /// without further bookkeeping.
-    pub(crate) fn ep_capture_is_legal_for(
-        &self,
-        ep_sq: Square,
-        capturer: Color,
-    ) -> bool {
+    pub(crate) fn ep_capture_is_legal_for(&self, ep_sq: Square, capturer: Color) -> bool {
         let pusher = capturer.opponent();
 
         // Pseudo-legal capturers: capturer pawns whose attack set covers
@@ -261,10 +257,10 @@ impl Position {
         };
 
         let king_sq = self.king_sq(capturer);
-        let pusher_rq = self.piece_bb(pusher, PieceType::Rook)
-            | self.piece_bb(pusher, PieceType::Queen);
-        let pusher_bq = self.piece_bb(pusher, PieceType::Bishop)
-            | self.piece_bb(pusher, PieceType::Queen);
+        let pusher_rq =
+            self.piece_bb(pusher, PieceType::Rook) | self.piece_bb(pusher, PieceType::Queen);
+        let pusher_bq =
+            self.piece_bb(pusher, PieceType::Bishop) | self.piece_bb(pusher, PieceType::Queen);
         let occ = self.occupied();
 
         while capturers != 0 {
