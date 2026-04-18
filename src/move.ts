@@ -67,6 +67,16 @@ export function parseSquare(name: string): number | null {
   return r * 8 + f;
 }
 
+/** "light" / "dark" for the given square. `a1` is dark; `h1` is light.
+ *  Accepts either algebraic names (`"e4"`) or 0..63 indices (with `a1 = 0`). */
+export function squareColor(square: number | string): "light" | "dark" | null {
+  const idx = typeof square === "string" ? parseSquare(square) : square;
+  if (idx === null || idx < 0 || idx >= 64) return null;
+  const file = idx & 7;
+  const rank = idx >> 3;
+  return ((file + rank) & 1) === 0 ? "dark" : "light";
+}
+
 /** UCI representation: e.g. "e2e4", "e7e8q". */
 export function moveToUci(m: Move): string {
   const from = squareName(moveFrom(m));
@@ -130,4 +140,10 @@ export interface VerboseMove {
   san: string;
   /** Long algebraic / UCI representation: `"e2e4"`, `"e7e8q"`. */
   uci: string;
+  /** FEN of the position BEFORE the move. Populated only when the verbose
+   *  move was produced by `history({ verbose: true, before: true })`. */
+  before?: string;
+  /** FEN of the position AFTER the move. Populated only when the verbose
+   *  move was produced by `history({ verbose: true, after: true })`. */
+  after?: string;
 }

@@ -1,11 +1,13 @@
 //! Public entry for ultrachess.
 
 export {
+  type BoardSquare,
   Chess,
   DisposedError,
   IllegalMoveError,
   InvalidFenError,
   InvalidPgnError,
+  type MoveInput,
   STARTING_FEN,
 } from "./chess.js";
 export {
@@ -30,6 +32,7 @@ export {
   PieceType,
   parseSquare,
   pieceChar,
+  squareColor,
   squareName,
   type VerboseMove,
 } from "./move.js";
